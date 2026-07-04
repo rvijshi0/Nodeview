@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL (Standard relational app data: auth, configuration schedulers, agents list)
+  db-postgres:
+    image: postgres:15-alpine
+    container_name: nodeview-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nodeview
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: always
+
+  # 2. Neo4j Graph Engine (Core network topology device relationship maps)
+  db-neo4j:
+    image: neo4j:5.12-community
+    container_name: nodeview-neo4j
+    ports:
+      - "7474:7474" # HTTP Dashboard
+      - "7687:7687" # Bolt protocol
+    environment:
+      NEO4J_AUTH: neo4j/password
+    volumes:
+      - neo4jdata:/data
+      - neo4jlogs:/logs
+    restart: always
+
+  # 3. Backend C2 application (FastAPI + Websockets C2 + Ingestion endpoints)
+  backend-api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: nodeview-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db-postgres:5432/nodeview
+      - NEO4J_URI=bolt://db-neo4j:7687
+    depends_on:
+      - db-postgres
+      - db-neo4j
+    restart: always
+
+volumes:
+  pgdata:
+  neo4jdata:
+  neo4jlogs:

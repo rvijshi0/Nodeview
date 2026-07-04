@@ -1,0 +1,5 @@
+scapy==2.5.0
+websockets==12.0
+requests==2.31.0
+pywin32==306
+pyinstaller==6.3.0
