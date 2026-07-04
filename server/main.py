@@ -88,6 +88,24 @@ def admin_login(payload: dict = Body(...), db: Session = Depends(get_pg_db)):
 
     return {"token": ACCESS_TOKEN, "username": username}
 
+@app.post("/api/auth/change-password")
+def change_password(payload: dict = Body(...), db: Session = Depends(get_pg_db)):
+    username = payload.get("username", "admin")
+    current_password = payload.get("current_password")
+    new_password = payload.get("new_password")
+
+    if not current_password or not new_password:
+        raise HTTPException(status_code=400, detail="Current password and new password are required")
+
+    user = db.query(User).filter(User.username == username, User.hashed_password == current_password).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Incorrect current password")
+
+    user.hashed_password = new_password
+    db.commit()
+    return {"status": "success", "message": "Password updated successfully"}
+
+
 # --- Network/VLAN Configuration APIs ---
 
 @app.get("/api/networks")
@@ -324,7 +342,7 @@ def list_registered_agents(db: Session = Depends(get_pg_db)):
     agents = db.query(Agent).all()
     result = []
     for agent in agents:
-        key = agent.mac_address.lower() if agent.mac_address else f"agent_{agent.name}".lower()
+        key = agent.name.lower()
         is_online = key in active_agents
         status_val = "online" if is_online else "offline"
 
@@ -349,7 +367,7 @@ def get_agent_by_ip(ip: str, db: Session = Depends(get_pg_db)):
     if not agent:
         raise HTTPException(status_code=404, detail="No agent found at this IP")
 
-    key = agent.mac_address.lower() if agent.mac_address else f"agent_{agent.name}".lower()
+    key = agent.name.lower()
     return {
         "id": agent.id,
         "name": agent.name,
@@ -402,6 +420,49 @@ def register_agent(payload: dict = Body(...), db: Session = Depends(get_pg_db)):
         "api_key": agent.api_key,
         "status": agent.status
     }
+
+@app.post("/api/agents/{agent_id}/edit")
+async def edit_agent(agent_id: int, payload: dict = Body(...), db: Session = Depends(get_pg_db)):
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    ip = payload.get("ip_address")
+    mac = payload.get("mac_address")
+
+    agent.ip_address = ip
+    agent.mac_address = mac
+    db.commit()
+    db.refresh(agent)
+
+    # Also update the Neo4j node visualization
+    try:
+        neo4j_store.merge_agent_node(name=agent.name, ip=agent.ip_address, mac=agent.mac_address)
+    except Exception as e:
+        print(f"Failed to update Neo4j node: {e}")
+
+    # Notify agent via C2 WebSocket if online
+    agent_key = agent.name.lower()
+    if agent_key in active_agents:
+        try:
+            await active_agents[agent_key].send_text(json.dumps({
+                "action": "update_config",
+                "ip_address": ip,
+                "mac_address": mac
+            }))
+            await broadcast_ui_log(f"Sent configuration update to agent '{agent.name}': IP={ip}, MAC={mac}", "info")
+        except Exception as e:
+            await broadcast_ui_log(f"Failed to push config update to agent '{agent.name}': {e}", "warning")
+
+    return {"status": "success", "agent": {
+        "id": agent.id,
+        "name": agent.name,
+        "ip_address": agent.ip_address,
+        "mac_address": agent.mac_address,
+        "status": agent.status
+    }}
+
+
 
 # --- Telemetry Ingestion Endpoint ---
 
@@ -553,7 +614,7 @@ async def run_diagnostics_test(payload: dict = Body(...), db: Session = Depends(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    key = agent.mac_address.lower() if agent.mac_address else f"agent_{agent.name}".lower()
+    key = agent.name.lower()
     if key not in active_agents:
         raise HTTPException(status_code=400, detail=f"Source Agent '{agent.name}' is offline")
 
@@ -599,7 +660,7 @@ async def run_advanced_diagnostics(payload: dict = Body(...), db: Session = Depe
     spoof_ip = payload.get("spoof_ip")
     spoof_mac = payload.get("spoof_mac")
 
-    if not source_agent_id or not target_ip or not target_port:
+    if not source_agent_id or not target_ip or target_port is None:
         raise HTTPException(status_code=400, detail="source_agent_id, target_ip, and target_port are required")
 
     # Validate source agent
@@ -607,7 +668,7 @@ async def run_advanced_diagnostics(payload: dict = Body(...), db: Session = Depe
     if not source_agent:
         raise HTTPException(status_code=404, detail="Source agent not found")
 
-    src_key = source_agent.mac_address.lower() if source_agent.mac_address else f"agent_{source_agent.name}".lower()
+    src_key = source_agent.name.lower()
     if src_key not in active_agents:
         raise HTTPException(status_code=400, detail=f"Source Agent '{source_agent.name}' is offline")
 
@@ -620,7 +681,7 @@ async def run_advanced_diagnostics(payload: dict = Body(...), db: Session = Depe
     tgt_key = None
 
     if target_agent and is_spoofed:
-        tgt_key = target_agent.mac_address.lower() if target_agent.mac_address else f"agent_{target_agent.name}".lower()
+        tgt_key = target_agent.name.lower()
         if tgt_key in active_agents:
             is_collaborative = True
 
@@ -633,7 +694,7 @@ async def run_advanced_diagnostics(payload: dict = Body(...), db: Session = Depe
         protocol=protocol,
         spoof_ip=spoof_ip,
         spoof_mac=spoof_mac,
-        test_type="spoof_test" if is_spoofed else "tcp_test",
+        test_type="spoof_test" if is_spoofed else protocol,
         status="initiated",
         is_collaborative=is_collaborative,
         target_agent_name=target_agent.name if target_agent else None
@@ -667,7 +728,7 @@ async def run_advanced_diagnostics(payload: dict = Body(...), db: Session = Depe
         # Small delay to let listener setup
         await asyncio.sleep(1)
 
-    # ── Phase 3: Instruct source agent to INJECT ──
+    # ── Phase 3: Instruct source agent to INJECT / TEST ──
     if is_spoofed:
         inject_cmd = {
             "action": "inject_spoof",
@@ -681,12 +742,14 @@ async def run_advanced_diagnostics(payload: dict = Body(...), db: Session = Depe
         await broadcast_ui_log(f"[SERVER] Instructing {source_agent.name} to inject spoofed packet: SRC_IP={effective_src_ip} → DST={target_ip}:{target_port}", "info")
     else:
         inject_cmd = {
-            "action": "tcp_test",
+            "action": "diagnostic",
             "test_id": test_id,
             "target_ip": target_ip,
-            "target_port": int(target_port)
+            "target_port": int(target_port),
+            "protocol": protocol
         }
-        await broadcast_ui_log(f"[SERVER] Instructing {source_agent.name}: Standard connectivity check → {target_ip}:{target_port}", "info")
+        await broadcast_ui_log(f"[SERVER] Instructing {source_agent.name}: Run standard diagnostic ({protocol.upper()}) → {target_ip}:{target_port}", "info")
+
 
     try:
         await active_agents[src_key].send_text(json.dumps(inject_cmd))
@@ -720,7 +783,7 @@ async def run_traceroute(payload: dict = Body(...), db: Session = Depends(get_pg
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    key = agent.mac_address.lower() if agent.mac_address else f"agent_{agent.name}".lower()
+    key = agent.name.lower()
     if key not in active_agents:
         raise HTTPException(status_code=400, detail=f"Agent '{agent.name}' is offline")
 
@@ -784,7 +847,7 @@ async def ws_agent_c2(websocket: WebSocket, key: str = None, name: str = None, d
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    agent_key = agent.mac_address.lower() if agent.mac_address else f"agent_{agent.name}".lower()
+    agent_key = agent.name.lower()
 
     await websocket.accept()
     active_agents[agent_key] = websocket
@@ -822,6 +885,24 @@ async def ws_agent_c2(websocket: WebSocket, key: str = None, name: str = None, d
                         test_rec.result_details = details
                         test_rec.completed_at = datetime.datetime.utcnow()
                         db.commit()
+
+            elif msg_type == "diagnostic_result":
+                success = data.get("success", False)
+                details = data.get("details", "")
+                test_id = data.get("test_id")
+                test_type = data.get("test_type", "diagnostic")
+                result_type = "success" if success else "warning"
+                await broadcast_ui_log(f"[{agent.name} {test_type.upper()}] {details}", result_type)
+
+                # Update test record
+                if test_id:
+                    test_rec = db.query(DiagnosticTest).filter(DiagnosticTest.test_id == test_id).first()
+                    if test_rec:
+                        test_rec.status = "success" if success else "failed"
+                        test_rec.result_details = details
+                        test_rec.completed_at = datetime.datetime.utcnow()
+                        db.commit()
+
 
             elif msg_type == "inject_complete":
                 details = data.get("details", "Packet injected")

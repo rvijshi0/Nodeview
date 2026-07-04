@@ -1016,6 +1016,7 @@ body {
 .trace-line {
     animation: fadeInUp 0.15s ease;
     padding: 1px 0;
+    white-space: pre-wrap;
 }
 
 .trace-line.server-msg { color: var(--accent-blue); }

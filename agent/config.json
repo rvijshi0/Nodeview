@@ -1,5 +1,5 @@
 {
   "server_url": "http://localhost:8000",
-  "password": "SecurePassword123",
+  "password": "testonly",
   "mock": true
 }

@@ -60,6 +60,8 @@ const ICONS = {
     refreshCw: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>`,
     eye: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`,
     eyeOff: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`,
+    settings: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`
+,
 };
 
 // ── Initialize Page ───────────────────────────────────────────────
@@ -89,11 +91,11 @@ function renderLoginPage() {
                 <div class="login-form">
                     <div class="form-group">
                         <label>Username</label>
-                        <input type="text" id="login-username" value="admin" autocomplete="username">
+                        <input type="text" id="login-username" placeholder="Enter username" autocomplete="username">
                     </div>
                     <div class="form-group" style="position: relative;">
                         <label>Password</label>
-                        <input type="password" id="login-password" value="admin" autocomplete="current-password">
+                        <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password">
                         <button type="button" id="toggle-password" style="position: absolute; right: 10px; bottom: 10px; background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px;">${ICONS.eye}</button>
                     </div>
                     <div id="login-error" class="login-error-msg"></div>
@@ -197,6 +199,9 @@ function renderDashboard() {
                     <button class="nav-item" data-tab="downloads">
                         <span class="nav-icon">${ICONS.download}</span> Downloads
                     </button>
+                    <button class="nav-item" data-tab="settings">
+                        <span class="nav-icon">${ICONS.settings}</span> Settings
+                    </button>
                 </nav>
 
                 <div class="sidebar-footer">
@@ -262,8 +267,10 @@ function switchTab(tabName) {
         case "agents": renderAgentsTab(viewport); break;
         case "networks": renderNetworksTab(viewport); break;
         case "downloads": renderDownloadsTab(viewport); break;
+        case "settings": renderSettingsTab(viewport); break;
     }
 }
+
 
 // ═══════════════════════════════════════════════════════════════════
 // TAB 1: SUMMARY / TOPOLOGY
@@ -688,6 +695,7 @@ function renderTroubleshootTab(viewport) {
                         <option value="icmp">ICMP (Ping)</option>
                         <option value="tcp" selected>TCP</option>
                         <option value="udp">UDP</option>
+                        <option value="traceroute">Traceroute (tracert)</option>
                     </select>
                 </div>
 
@@ -955,7 +963,12 @@ async function loadAgentsGrid() {
                             <div class="agent-card-icon">${ICONS.monitor}</div>
                             <span>${a.name}</span>
                         </div>
-                        <span class="status-pill ${a.status}">${a.status}</span>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <span class="status-pill ${a.status}">${a.status}</span>
+                            <button class="btn btn-secondary btn-sm" onclick="openEditAgentModal(${a.id}, '${a.name}', '${a.ip_address || ''}', '${a.mac_address || ''}')" title="Edit Agent IP/MAC" style="padding: 2px 6px; font-size: 0.75rem;">
+                                ✏️
+                            </button>
+                        </div>
                     </div>
                     <div class="agent-card-details">
                         <span class="agent-detail-label">IP Address</span>
@@ -1374,3 +1387,174 @@ function logConsole(message, type = "info") {
         container.removeChild(container.firstChild);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// TAB 6: SETTINGS / PASSWORD MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════
+
+function renderSettingsTab(viewport) {
+    viewport.innerHTML = `
+        <div class="downloads-layout" style="max-width: 600px;">
+            <div class="card">
+                <h3>${ICONS.settings} Change Admin Password</h3>
+                <p class="card-subtitle">Securely update the administrator password in the database.</p>
+
+                <div class="form-group mt-3">
+                    <label>Current Password</label>
+                    <input type="password" id="settings-current-password" placeholder="Enter current password">
+                </div>
+                <div class="form-group mt-3">
+                    <label>New Password</label>
+                    <input type="password" id="settings-new-password" placeholder="Enter new password">
+                </div>
+                <div class="form-group mt-3">
+                    <label>Confirm New Password</label>
+                    <input type="password" id="settings-confirm-password" placeholder="Confirm new password">
+                </div>
+
+                <div id="settings-error" class="login-error-msg mt-3" style="color: var(--danger); font-size: 0.8rem; margin-top: 8px;"></div>
+                <div id="settings-success" class="login-success-msg mt-3" style="color: var(--success); font-size: 0.8rem; font-weight: 600; margin-top: 8px;"></div>
+
+                <button class="btn btn-primary" id="btn-change-password" style="margin-top: 18px;">
+                    ${ICONS.shield} Update Password
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.getElementById("btn-change-password").addEventListener("click", handlePasswordChange);
+}
+
+async function handlePasswordChange() {
+    const currentPassword = document.getElementById("settings-current-password").value;
+    const newPassword = document.getElementById("settings-new-password").value;
+    const confirmPassword = document.getElementById("settings-confirm-password").value;
+    const errDiv = document.getElementById("settings-error");
+    const successDiv = document.getElementById("settings-success");
+    const btn = document.getElementById("btn-change-password");
+
+    errDiv.innerText = "";
+    successDiv.innerText = "";
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+        errDiv.innerText = "All fields are required.";
+        return;
+    }
+
+    if (newPassword !== confirmPassword) {
+        errDiv.innerText = "New passwords do not match.";
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = `<span class="loading-spinner"></span> Updating...`;
+
+    try {
+        const res = await fetch("/api/auth/change-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                username: "admin",
+                current_password: currentPassword,
+                new_password: newPassword
+            })
+        });
+
+        if (res.ok) {
+            successDiv.innerText = "Password updated successfully! Redirecting in 2 seconds...";
+            setTimeout(() => {
+                // Logout to force login with new credentials
+                localStorage.removeItem("admin_token");
+                token = null;
+                renderLoginPage();
+            }, 2000);
+        } else {
+            const err = await res.json();
+            errDiv.innerText = err.detail || "Failed to update password.";
+            btn.disabled = false;
+            btn.innerHTML = `${ICONS.shield} Update Password`;
+        }
+    } catch (e) {
+        errDiv.innerText = "Error connecting to server.";
+        btn.disabled = false;
+        btn.innerHTML = `${ICONS.shield} Update Password`;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AGENT EDIT MODAL
+// ═══════════════════════════════════════════════════════════════════
+
+function openEditAgentModal(id, name, ip, mac) {
+    const modal = document.createElement("div");
+    modal.className = "modal-overlay";
+    modal.id = "edit-agent-modal";
+    modal.innerHTML = `
+        <div class="modal-card">
+            <h3>Edit Agent Details</h3>
+            <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 15px;">Modify source IP and MAC address for Agent: <strong>${name}</strong></p>
+            
+            <div class="form-group mt-3">
+                <label>Source IP Address</label>
+                <input type="text" id="edit-agent-ip" value="${ip}" placeholder="e.g. 10.0.10.15">
+            </div>
+            <div class="form-group mt-3">
+                <label>Source MAC Address</label>
+                <input type="text" class="mac-input" id="edit-agent-mac" value="${mac}" placeholder="e.g. 00:50:56:ab:cd:ef">
+            </div>
+            
+            <div id="edit-agent-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 8px;"></div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary btn-sm" onclick="closeEditAgentModal()">Cancel</button>
+                <button class="btn btn-primary btn-sm" id="btn-save-agent-edit">Save Changes</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    document.getElementById("btn-save-agent-edit").addEventListener("click", () => saveAgentEdit(id));
+}
+
+function closeEditAgentModal() {
+    const modal = document.getElementById("edit-agent-modal");
+    if (modal) {
+        modal.remove();
+    }
+}
+
+async function saveAgentEdit(id) {
+    const ip = document.getElementById("edit-agent-ip").value;
+    const mac = document.getElementById("edit-agent-mac").value;
+    const errDiv = document.getElementById("edit-agent-error");
+    const btn = document.getElementById("btn-save-agent-edit");
+    
+    btn.disabled = true;
+    btn.innerHTML = `<span class="loading-spinner"></span> Saving...`;
+    
+    try {
+        const res = await fetch(`/api/agents/${id}/edit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ip_address: ip, mac_address: mac })
+        });
+        
+        if (res.ok) {
+            closeEditAgentModal();
+            loadAgentsGrid();
+            fetchTopology(); // Refresh network topology to show new IP/MAC
+        } else {
+            const err = await res.json();
+            errDiv.innerText = err.detail || "Failed to update agent.";
+            btn.disabled = false;
+            btn.innerHTML = `Save Changes`;
+        }
+    } catch (e) {
+        errDiv.innerText = "Error connecting to server.";
+        btn.disabled = false;
+        btn.innerHTML = `Save Changes`;
+    }
+}
+
+

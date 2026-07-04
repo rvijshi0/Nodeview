@@ -77,3 +77,7 @@ secrets.json
 
 # Local agent config (dynamic configuration)
 # agent/config.json
+
+# Log files
+*.log
+

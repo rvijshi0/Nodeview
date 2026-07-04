@@ -66,14 +66,18 @@ class NodeViewAgent:
                     self.agent_name = config.get("agent_name") or self.agent_name or socket.gethostname()
                     self.force_mock = config.get("mock", self.force_mock)
                     self.password = config.get("password", None)
+                    self.ip_address = config.get("ip_address", None)
+                    self.mac_address = config.get("mac_address", None)
             except Exception as e:
                 print(f"Error loading config.json: {e}")
 
         # Runtime settings
         self.api_key = None
         self.agent_id = None
-        self.ip_address = "127.0.0.1"
-        self.mac_address = "00:00:00:00:00:00"
+        if not hasattr(self, "ip_address"):
+            self.ip_address = None
+        if not hasattr(self, "mac_address"):
+            self.mac_address = None
         self.simulated = self.force_mock or (not SCAPY_AVAILABLE)
         self.websocket = None
         self.running = True
@@ -94,39 +98,69 @@ class NodeViewAgent:
     def log(self, message, is_error=False):
         prefix = "[SIMULATED]" if self.simulated else "[REAL]"
         status = "ERROR:" if is_error else "INFO:"
-        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {prefix} {status} {message}")
+        log_line = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {prefix} {status} {message}"
+        print(log_line)
+
+        # Log to local agent.log file
+        try:
+            if getattr(sys, "frozen", False):
+                log_dir = os.path.dirname(sys.executable)
+            else:
+                try:
+                    log_dir = os.path.dirname(os.path.abspath(__file__))
+                except NameError:
+                    log_dir = os.getcwd()
+            log_path = os.path.join(log_dir, "agent.log")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(log_line + "\n")
+        except Exception as e:
+            print(f"Failed to write to agent.log: {e}")
 
     def resolve_network_details(self):
+        # Skip auto-detection if source IP and MAC are both defined in configuration
+        if getattr(self, "ip_address", None) and getattr(self, "mac_address", None):
+            self.log(f"Using configured interface from config: IP={self.ip_address}, MAC={self.mac_address}")
+            return
+
         if self.simulated:
             random.seed(self.agent_name)
-            self.ip_address = f"10.0.10.{random.randint(10, 99)}"
-            mac_octets = [0x00, 0x50, 0x56, random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)]
-            self.mac_address = ":".join(f"{x:02x}" for x in mac_octets)
+            if not getattr(self, "ip_address", None):
+                self.ip_address = f"10.0.10.{random.randint(10, 99)}"
+            if not getattr(self, "mac_address", None):
+                mac_octets = [0x00, 0x50, 0x56, random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)]
+                self.mac_address = ":".join(f"{x:02x}" for x in mac_octets)
             self.log(f"Configured mock interface: IP={self.ip_address}, MAC={self.mac_address}")
             return
 
         try:
             # Resolve local IP via UDP socket trick
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            self.ip_address = s.getsockname()[0]
-            s.close()
+            if not getattr(self, "ip_address", None):
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                self.ip_address = s.getsockname()[0]
+                s.close()
+            else:
+                self.log(f"Using configured IP address: {self.ip_address}")
 
             # Try to get real MAC via Scapy
-            if SCAPY_AVAILABLE:
-                try:
-                    iface = conf.iface
-                    self.mac_address = get_if_hwaddr(iface)
-                except Exception:
+            if not getattr(self, "mac_address", None):
+                if SCAPY_AVAILABLE:
+                    try:
+                        iface = conf.iface
+                        self.mac_address = get_if_hwaddr(iface)
+                    except Exception:
+                        self.mac_address = "00:50:56:ab:cd:ef"
+                else:
                     self.mac_address = "00:50:56:ab:cd:ef"
             else:
-                self.mac_address = "00:50:56:ab:cd:ef"
+                self.log(f"Using configured MAC address: {self.mac_address}")
 
             self.log(f"Detected interface: IP={self.ip_address}, MAC={self.mac_address}")
         except Exception as e:
             self.log(f"Interface lookup failed. Defaulting to simulation mode. Reason: {e}")
             self.simulated = True
             self.resolve_network_details()
+
 
     # ── Rate Limiter ──────────────────────────────────────────────
 
@@ -387,6 +421,16 @@ class NodeViewAgent:
                 daemon=True
             ).start()
 
+        elif action == "diagnostic":
+            target_ip = payload.get("target_ip")
+            target_port = payload.get("target_port")
+            protocol = payload.get("protocol", "tcp")
+            threading.Thread(
+                target=self._run_system_diagnostic_threaded,
+                args=(test_id, target_ip, target_port, protocol),
+                daemon=True
+            ).start()
+
         elif action == "inject_spoof":
             target_ip = payload.get("target_ip")
             target_port = payload.get("target_port")
@@ -423,6 +467,16 @@ class NodeViewAgent:
 
         elif action == "heartbeat_ack":
             pass  # Acknowledged
+
+        elif action == "update_config":
+            ip = payload.get("ip_address")
+            mac = payload.get("mac_address")
+            self.log(f"Received configuration update: IP={ip}, MAC={mac}")
+            if ip:
+                self.ip_address = ip
+            if mac:
+                self.mac_address = mac
+            self.update_local_config(ip, mac)
 
     # ── Command Handlers (Threaded) ───────────────────────────────
 
@@ -461,6 +515,77 @@ class NodeViewAgent:
         self._send_ws_sync({
             "type": "tcp_test_result",
             "test_id": test_id,
+            "success": success,
+            "details": details
+        })
+
+    def _run_system_diagnostic_threaded(self, test_id, target_ip, target_port, protocol):
+        self.log(f"Executing system diagnostic: {protocol.upper()} -> {target_ip}:{target_port}")
+        success = False
+        details = ""
+
+        # 1. ICMP Ping requests
+        if protocol == "icmp":
+            is_windows = os.name == 'nt'
+            cmd = ["ping", "-n", "4", target_ip] if is_windows else ["ping", "-c", "4", target_ip]
+
+            try:
+                self.log(f"Running system ping command: {' '.join(cmd)}")
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                details = res.stdout if res.stdout else res.stderr
+                success = res.returncode == 0
+                if not details:
+                    details = f"Ping executed with return code {res.returncode}"
+            except subprocess.TimeoutExpired:
+                details = "Ping command timed out after 15 seconds."
+                success = False
+            except Exception as e:
+                details = f"Failed to execute system ping: {e}"
+                success = False
+
+        # 2. Traceroute (tracert)
+        elif protocol == "traceroute":
+            is_windows = os.name == 'nt'
+            cmd = ["tracert", "-d", "-h", "20", target_ip] if is_windows else ["traceroute", "-n", "-m", "20", target_ip]
+
+            try:
+                self.log(f"Running system traceroute command: {' '.join(cmd)}")
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                details = res.stdout if res.stdout else res.stderr
+                success = res.returncode == 0
+                if not details:
+                    details = f"Traceroute executed with return code {res.returncode}"
+            except subprocess.TimeoutExpired:
+                details = "Traceroute command timed out after 60 seconds."
+                success = False
+            except Exception as e:
+                details = f"Failed to execute system traceroute: {e}"
+                success = False
+
+        # 3. TCP Port connectivity checks (equivalent to Telnet)
+        else: # "tcp" or "udp"
+            t_start = time.time()
+            try:
+                self.log(f"Running standard TCP connect call to {target_ip}:{target_port}")
+                conn = socket.create_connection((target_ip, int(target_port)), timeout=5.0)
+                conn.close()
+                rtt = round((time.time() - t_start) * 1000, 2)
+                details = f"SUCCESS: TCP connection established to {target_ip}:{target_port}.\nRTT: {rtt}ms.\nEquivalent to telnet port OPEN."
+                success = True
+            except socket.timeout:
+                details = f"TIMEOUT: Connection timed out attempting to reach {target_ip}:{target_port}."
+                success = False
+            except Exception as e:
+                details = f"CLOSED/BLOCKED: Unable to connect to target {target_ip}:{target_port}.\nReason: {e}."
+                success = False
+
+        self.log(f"System diagnostic finished. Success={success}")
+
+        # Send results back to dashboard in a clean JSON payload
+        self._send_ws_sync({
+            "type": "diagnostic_result",
+            "test_id": test_id,
+            "test_type": protocol,
             "success": success,
             "details": details
         })
@@ -528,7 +653,16 @@ class NodeViewAgent:
             packet = eth_layer / ip_layer / transport_layer
 
             # Inject
-            sendp(packet, verbose=False)
+            iface = None
+            try:
+                iface = conf.iface
+            except Exception:
+                pass
+
+            if iface:
+                sendp(packet, iface=iface, verbose=False)
+            else:
+                sendp(packet, verbose=False)
 
             details = (
                 f"INJECTED: Spoofed packet sent. "
@@ -833,7 +967,39 @@ class NodeViewAgent:
         traceroute_thread = threading.Thread(target=self.run_periodic_traceroutes, daemon=True)
         traceroute_thread.start()
 
-        asyncio.run(self.connect_c2())
+        while self.running:
+            try:
+                asyncio.run(self.connect_c2())
+            except Exception as e:
+                self.log(f"C2 loop crashed: {e}. Restarting C2 connection in 5 seconds...", is_error=True)
+                time.sleep(5)
+
+    def update_local_config(self, ip, mac):
+        if getattr(sys, "frozen", False):
+            script_dir = os.path.dirname(sys.executable)
+        else:
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+            except NameError:
+                script_dir = os.getcwd()
+
+        config_path = os.path.join(script_dir, "config.json")
+        try:
+            config = {}
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+            
+            if ip is not None:
+                config["ip_address"] = ip
+            if mac is not None:
+                config["mac_address"] = mac
+
+            with open(config_path, "w") as f:
+                json.dump(config, f, indent=2)
+            self.log(f"Successfully updated local config.json: IP={ip}, MAC={mac}")
+        except Exception as e:
+            self.log(f"Failed to update local config.json: {e}", is_error=True)
 
     def stop(self):
         self.running = False
