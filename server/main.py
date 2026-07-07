@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from database_pg import init_pg, get_pg_db, User, NetworkRange, Agent, DiagnosticTest, InternetTarget, AgentTraceroute, SystemSetting
 from database_neo4j import neo4j_store
 
-app = FastAPI(title="NodeView v1.5 Enterprise Server")
+app = FastAPI(title="NodeView v1.5.1 Enterprise Server")
 
 # Enable CORS
 app.add_middleware(
@@ -348,9 +348,11 @@ def fetch_graph_topology(db: Session = Depends(get_pg_db)):
             
             local_path = []
             for hop in path:
-                local_path.append(hop)
                 if not is_private(hop):
                     break
+                local_path.append(hop)
+            if not local_path:
+                continue
 
             # Loop hops and create hop nodes
             for idx, hop_ip in enumerate(local_path):
@@ -400,6 +402,34 @@ def fetch_graph_topology(db: Session = Depends(get_pg_db)):
                 existing_edge_keys.add(edge_key)
 
     return {"nodes": nodes, "edges": edges}
+
+@app.get("/api/devices")
+def get_all_devices():
+    base_topo = neo4j_store.get_topology_data()
+    nodes = base_topo.get("nodes", [])
+    edges = base_topo.get("edges", [])
+    
+    devices = []
+    # Identify agent mapped for each device
+    agent_map = {}
+    for e in edges:
+        if e["data"].get("type") == "DISCOVERED_BY":
+            agent_map[e["data"]["source"]] = e["data"]["target"]
+
+    for n in nodes:
+        node_type = n["data"].get("type", "")
+        if node_type not in ["agent", "internet", "firewall", "switch", "router", "ap", "wlc", "server", "cluster_group"]:
+            # Peripheral device
+            discovered_by = "Unknown"
+            agent_id = agent_map.get(n["data"]["id"])
+            if agent_id:
+                for a in nodes:
+                    if a["data"]["id"] == agent_id:
+                        discovered_by = a["data"].get("label", agent_id)
+                        break
+            n["data"]["discovered_by"] = discovered_by
+            devices.append(n["data"])
+    return devices
 
 # --- Agent REST APIs ---
 
@@ -640,7 +670,7 @@ def generate_agent_zip(payload: dict = Body(default={}), db: Session = Depends(g
 
         # Add installation README
         zf.writestr("README.txt",
-            f"NodeView v1.5 Agent Package\n"
+            f"NodeView v1.5.1 Agent Package\n"
             f"==========================\n\n"
             f"Server: http://{ip}:{port}\n\n"
             f"--- Linux (Ubuntu/Debian) ---\n"

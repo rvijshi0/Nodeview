@@ -85,7 +85,7 @@ function renderLoginPage() {
                     <div class="login-logo-icon">
                         ${ICONS.activity}
                     </div>
-                    <h2>Node<span class="pro-tag">View</span> v1.5</h2>
+                    <h2>Node<span class="pro-tag">View</span> v1.5.1</h2>
                     <p>Your entire network, in single sight</p>
                 </div>
                 <div class="login-form">
@@ -175,7 +175,7 @@ function renderDashboard() {
                 <header class="sidebar-header">
                     <div class="logo">
                         ${ICONS.logo}
-                        <span>Node<strong class="pro-tag">View</strong> v1.5</span>
+                        <span>Node<strong class="pro-tag">View</strong> v1.5.1</span>
                     </div>
                     <div class="system-status">
                         <span class="pulse-indicator"></span>
@@ -269,6 +269,7 @@ function switchTab(tabName) {
         case "troubleshoot": renderTroubleshootTab(viewport); break;
         case "agents": renderAgentsTab(viewport); break;
         case "networks": renderNetworksTab(viewport); break;
+        case "discovered_nodes": renderDiscoveredNodesTab(); break;
         case "downloads": renderDownloadsTab(viewport); break;
         case "settings": renderSettingsTab(viewport); break;
     }
@@ -677,8 +678,20 @@ function inspectNode(data) {
     `;
 }
 
-function renderDiscoveredNodesTab(devices) {
+async function renderDiscoveredNodesTab(devices) {
     const viewport = document.getElementById("page-content");
+    viewport.innerHTML = `<div style="padding:40px; text-align:center;">${ICONS.refreshCw} Loading devices...</div>`;
+    
+    if (devices === undefined) {
+        try {
+            const res = await fetch("/api/devices");
+            devices = await res.json();
+        } catch (e) {
+            logConsole("Failed to fetch devices", "error");
+            devices = [];
+        }
+    }
+
     let rows = "";
     if (devices && devices.length > 0) {
         devices.forEach(dev => {
@@ -704,11 +717,11 @@ function renderDiscoveredNodesTab(devices) {
                 <table>
                     <thead>
                         <tr>
-                            <th>Device Type</th>
-                            <th>Hostname / Label</th>
-                            <th>IP Address</th>
-                            <th>MAC Address</th>
-                            <th>Discovered By</th>
+                            <th class="resizable-th">Device Type</th>
+                            <th class="resizable-th">Hostname / Label</th>
+                            <th class="resizable-th">IP Address</th>
+                            <th class="resizable-th">MAC Address</th>
+                            <th class="resizable-th">Discovered By</th>
                         </tr>
                     </thead>
                     <tbody>

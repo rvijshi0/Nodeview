@@ -1402,3 +1402,9 @@ body {
 .items-center { align-items: center; }
 .justify-between { justify-content: space-between; }
 .flex-col { flex-direction: column; }
+
+.resizable-th {
+    resize: horizontal;
+    overflow: auto;
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
