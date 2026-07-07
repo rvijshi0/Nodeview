@@ -85,7 +85,7 @@ function renderLoginPage() {
                     <div class="login-logo-icon">
                         ${ICONS.activity}
                     </div>
-                    <h2>Node<span class="pro-tag">View</span> v1.2</h2>
+                    <h2>Node<span class="pro-tag">View</span> v1.3</h2>
                     <p>Your entire network, in single sight</p>
                 </div>
                 <div class="login-form">
@@ -175,7 +175,7 @@ function renderDashboard() {
                 <header class="sidebar-header">
                     <div class="logo">
                         ${ICONS.logo}
-                        <span>Node<strong class="pro-tag">View</strong> v1.2</span>
+                        <span>Node<strong class="pro-tag">View</strong> v1.3</span>
                     </div>
                     <div class="system-status">
                         <span class="pulse-indicator"></span>

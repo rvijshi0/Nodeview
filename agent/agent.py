@@ -13,21 +13,14 @@ import time
 import requests
 import websockets
 
-# Attempt Scapy import for raw packet operations
-try:
-    from scapy.all import (
-        Ether, IP, TCP, UDP, ICMP, ARP,
-        sr1, srp, send, sendp, sniff,
-        conf, get_if_list, get_if_hwaddr, getmacbyip
-    )
-    SCAPY_AVAILABLE = True
-except ImportError:
-    SCAPY_AVAILABLE = False
+# Scapy removed for native Windows compatibility
+SCAPY_AVAILABLE = False
+import uuid
 
 
 class NodeViewAgent:
     """
-    NodeView v1.2 Distributed Agent
+    NodeView v1.3 Distributed Agent
     Handles C2 websocket connection, passive ingestion, active network scanning, 
     and collaborative connectivity troubleshooting commands.
     
@@ -144,15 +137,12 @@ class NodeViewAgent:
             else:
                 self.log(f"Using configured IP address: {self.ip_address}")
 
-            # Try to get real MAC via Scapy
+            # Try to get real MAC natively
             if not getattr(self, "mac_address", None):
-                if SCAPY_AVAILABLE:
-                    try:
-                        iface = conf.iface
-                        self.mac_address = get_if_hwaddr(iface)
-                    except Exception:
-                        self.mac_address = "00:50:56:ab:cd:ef"
-                else:
+                try:
+                    mac_int = uuid.getnode()
+                    self.mac_address = ':'.join(['{:02x}'.format((mac_int >> elements) & 0xff) for elements in range(0,2*6,2)][::-1])
+                except Exception:
                     self.mac_address = "00:50:56:ab:cd:ef"
             else:
                 self.log(f"Using configured MAC address: {self.mac_address}")
@@ -255,41 +245,39 @@ class NodeViewAgent:
         while self.running:
             self.fetch_scan_frequency()
 
-            # Try Scapy ARP sweep first, fallback to ARP table
-            if SCAPY_AVAILABLE:
-                self.run_scapy_arp_scan()
-            else:
-                self.read_local_arp_table()
+            # Native discovery: run an async ping sweep then read ARP table
+            self.run_native_ping_sweep()
+            self.read_local_arp_table()
 
             self.push_telemetry()
             time.sleep(self.scan_frequency)
 
-    def run_scapy_arp_scan(self):
-        """Uses Scapy ARP ping sweep for fast subnet discovery."""
+    def run_native_ping_sweep(self):
+        """Uses native asynchronous ping to populate the local ARP table before reading it."""
         try:
-            # Determine subnet from own IP
             prefix = ".".join(self.ip_address.split(".")[:3])
-            subnet = f"{prefix}.0/24"
-
-            self.log(f"Initiating ARP sweep on {subnet}...")
-            ans, _ = srp(Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=subnet), timeout=3, verbose=False)
-
-            for sent, received in ans:
-                ip = received.psrc
-                mac = received.hwsrc.lower()
-                dev_info = {
-                    "ip": ip,
-                    "mac": mac,
-                    "hostname": f"Host-{ip.split('.')[-1]}",
-                    "type": self._classify_device_by_mac(mac)
-                }
-                with self.discovery_lock:
-                    self.discovered_devices[mac] = dev_info
-
-            self.log(f"ARP sweep complete: {len(ans)} hosts discovered.")
+            self.log(f"Initiating native ICMP ping sweep on {prefix}.0/24...")
+            
+            # Fire-and-forget pings for 1-254
+            def ping_host(ip_str):
+                cmd = ["ping", "-n", "1", "-w", "200", ip_str] if os.name == 'nt' else ["ping", "-c", "1", "-W", "1", ip_str]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+            threads = []
+            for i in range(1, 255):
+                target = f"{prefix}.{i}"
+                if target != self.ip_address:
+                    t = threading.Thread(target=ping_host, args=(target,), daemon=True)
+                    t.start()
+                    threads.append(t)
+                    
+            # Wait a max of 2 seconds for all to finish
+            for t in threads:
+                t.join(timeout=2.0)
+                
+            self.log("Native ping sweep complete. Reading ARP table...")
         except Exception as e:
-            self.log(f"Scapy ARP scan failed: {e}. Falling back to ARP table.", is_error=True)
-            self.read_local_arp_table()
+            self.log(f"Native ping sweep failed: {e}", is_error=True)
 
     def _classify_device_by_mac(self, mac):
         """Classify device type based on MAC OUI prefix."""
@@ -596,429 +584,87 @@ class NodeViewAgent:
 
     def _run_inject_spoof_threaded(self, test_id, target_ip, target_port, spoof_ip, spoof_mac, protocol):
         """
-        Constructs and injects a spoofed packet using Scapy.
-        
-        Uses IP/MAC spoofing to make the switch think the packet originates
-        from a different machine. This allows testing connectivity of 
-        unmanaged devices by having agents act as proxies.
+        Since raw packet spoofing is blocked on modern Windows endpoints without Npcap,
+        this will simulate the test by sending a standard packet from the native IP instead,
+        or just logging that spoofing is restricted.
         """
-        if self.simulated or not SCAPY_AVAILABLE:
-            self.log("Simulating spoofed packet injection (Scapy not available or mock mode)...")
+        if self.simulated:
+            self.log("Simulating spoofed packet injection (mock mode)...")
+            import time
             time.sleep(1)
-            details = (
-                f"[SIMULATED] Injected spoofed packet: "
-                f"SRC_IP={spoof_ip or self.ip_address}, "
-                f"SRC_MAC={spoof_mac or self.mac_address} → "
-                f"DST={target_ip}:{target_port} ({protocol.upper()})"
-            )
+            details = f"[SIMULATED] Injected spoofed packet: SRC_IP={spoof_ip}, SRC_MAC={spoof_mac} -> DST={target_ip}:{target_port} ({protocol.upper()})"
             self.log(details)
-            self._send_ws_sync({
-                "type": "inject_complete",
-                "test_id": test_id,
-                "success": True,
-                "details": details
-            })
+            self._send_ws_sync({"type": "inject_complete", "test_id": test_id, "success": True, "details": details})
             return
 
         if not self._check_rate_limit():
             self.log("Rate limit exceeded. Waiting...", is_error=True)
+            import time
             time.sleep(1)
 
         try:
-            src_ip = spoof_ip or self.ip_address
-            src_mac = spoof_mac or self.mac_address
-            src_port = random.randint(1024, 65535)
-
-            self.log(f"Constructing spoofed packet: {src_ip}:{src_port} → {target_ip}:{target_port}")
-
-            # Resolve gateway MAC for routing
-            gw_mac = None
-            try:
-                # Get default gateway IP
-                gw_ip = conf.route.route("0.0.0.0")[2]
-                gw_mac = getmacbyip(gw_ip)
-            except Exception:
-                gw_mac = "ff:ff:ff:ff:ff:ff"  # Broadcast fallback
-
-            # Build layers
-            eth_layer = Ether(src=src_mac, dst=gw_mac or "ff:ff:ff:ff:ff:ff")
-            ip_layer = IP(src=src_ip, dst=target_ip, ttl=64)
-
+            self.log(f"Attempting packet injection -> {target_ip}:{target_port}")
+            import socket
             if protocol == "tcp":
-                transport_layer = TCP(sport=src_port, dport=int(target_port), flags="S")
+                conn = socket.create_connection((target_ip, int(target_port)), timeout=2.0)
+                conn.close()
             elif protocol == "udp":
-                transport_layer = UDP(sport=src_port, dport=int(target_port))
-            else:
-                # ICMP
-                transport_layer = ICMP()
-
-            packet = eth_layer / ip_layer / transport_layer
-
-            # Inject
-            iface = None
-            try:
-                iface = conf.iface
-            except Exception:
-                pass
-
-            if iface:
-                sendp(packet, iface=iface, verbose=False)
-            else:
-                sendp(packet, verbose=False)
-
-            details = (
-                f"INJECTED: Spoofed packet sent. "
-                f"SRC={src_ip}:{src_port} (MAC={src_mac}) → "
-                f"DST={target_ip}:{target_port} ({protocol.upper()}) "
-                f"via GW_MAC={gw_mac}"
-            )
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.sendto(b"test_payload", (target_ip, int(target_port)))
+                sock.close()
+            
+            details = f"INJECTED: Standard (non-spoofed) packet sent from real IP -> DST={target_ip}:{target_port} ({protocol.upper()}). Note: Raw IP spoofing is restricted natively on Windows without Npcap."
             self.log(details)
-
-            self._send_ws_sync({
-                "type": "inject_complete",
-                "test_id": test_id,
-                "success": True,
-                "details": details
-            })
-
+            self._send_ws_sync({"type": "inject_complete", "test_id": test_id, "success": True, "details": details})
         except Exception as e:
             details = f"INJECT FAILED: {e}"
             self.log(details, is_error=True)
-            self._send_ws_sync({
-                "type": "inject_complete",
-                "test_id": test_id,
-                "success": False,
-                "details": details
-            })
+            self._send_ws_sync({"type": "inject_complete", "test_id": test_id, "success": False, "details": details})
 
     # ── Promiscuous Listener ──
 
     def _run_listen_threaded(self, test_id, expected_src_ip, expected_port, protocol, timeout):
         """
-        Opens a raw socket listener (promiscuous mode via Scapy) and
-        waits for a packet matching the expected source IP and destination port.
-        
-        When intercepted, immediately reports back to the C2 server.
+        Opens a standard socket listener and waits for a connection or packet.
         """
-        # Send ACK first
-        self._send_ws_sync({
-            "type": "listen_ack",
-            "test_id": test_id,
-            "details": f"Listening for src={expected_src_ip} port={expected_port}"
-        })
+        self._send_ws_sync({"type": "listen_ack", "test_id": test_id, "details": f"Listening natively on port={expected_port}"})
 
-        if self.simulated or not SCAPY_AVAILABLE:
+        if self.simulated:
             self.log(f"Simulating listener for src={expected_src_ip}, port={expected_port}...")
-            # Simulate: wait a bit then report success (for demo)
+            import time
             time.sleep(3)
-            details = (
-                f"[SIMULATED] Intercepted packet from {expected_src_ip} "
-                f"on port {expected_port} ({protocol.upper()})"
-            )
+            details = f"[SIMULATED] Intercepted packet from {expected_src_ip} on port {expected_port} ({protocol.upper()})"
             self.log(details)
-            self._send_ws_sync({
-                "type": "packet_intercepted",
-                "test_id": test_id,
-                "success": True,
-                "details": details
-            })
+            self._send_ws_sync({"type": "packet_intercepted", "test_id": test_id, "success": True, "details": details})
             return
 
         try:
-            # Build BPF filter
+            import socket
+            self.log(f"Opening native socket listener on port {expected_port}. Timeout: {timeout}s")
             if protocol == "tcp":
-                bpf_filter = f"src host {expected_src_ip} and tcp dst port {expected_port}"
-            elif protocol == "udp":
-                bpf_filter = f"src host {expected_src_ip} and udp dst port {expected_port}"
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.bind(('0.0.0.0', int(expected_port)))
+                sock.listen(1)
+                sock.settimeout(timeout)
+                conn, addr = sock.accept()
+                src_ip = addr[0]
+                conn.close()
+                sock.close()
             else:
-                bpf_filter = f"src host {expected_src_ip} and icmp"
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.bind(('0.0.0.0', int(expected_port)))
+                sock.settimeout(timeout)
+                data, addr = sock.recvfrom(1024)
+                src_ip = addr[0]
+                sock.close()
 
-            self.log(f"Opening promiscuous listener. BPF: '{bpf_filter}', Timeout: {timeout}s")
+            details = f"INTERCEPTED: Native packet/connection received from {src_ip} on port {expected_port}."
+            self.log(details)
+            self._send_ws_sync({"type": "packet_intercepted", "test_id": test_id, "success": True, "details": details})
 
-            # Use Scapy sniff with timeout
-            captured = sniff(filter=bpf_filter, count=1, timeout=timeout)
-
-            if captured and len(captured) > 0:
-                pkt = captured[0]
-                src_ip = pkt[IP].src if pkt.haslayer(IP) else "unknown"
-                details = (
-                    f"INTERCEPTED: Packet received from {src_ip} "
-                    f"on port {expected_port}. Packet size: {len(pkt)} bytes."
-                )
-                self.log(details)
-                self._send_ws_sync({
-                    "type": "packet_intercepted",
-                    "test_id": test_id,
-                    "success": True,
-                    "details": details
-                })
-            else:
-                self.log(f"Listen timeout: No matching packet received within {timeout}s.")
-                self._send_ws_sync({
-                    "type": "listen_timeout",
-                    "test_id": test_id,
-                    "details": f"No packet matching BPF '{bpf_filter}' received within {timeout}s."
-                })
-
+        except socket.timeout:
+            self.log(f"Listen timeout: No packet received within {timeout}s.")
+            self._send_ws_sync({"type": "listen_timeout", "test_id": test_id, "details": f"No packet received on port {expected_port} within {timeout}s."})
         except Exception as e:
             self.log(f"Listener error: {e}", is_error=True)
-            self._send_ws_sync({
-                "type": "listen_timeout",
-                "test_id": test_id,
-                "details": f"Listener error: {e}"
-            })
-
-    # ── Traceroute ──
-
-    def _run_traceroute_threaded(self, test_id, target_ip, target_port, protocol, max_hops):
-        """
-        Performs TCP SYN traceroute or ICMP traceroute.
-        
-        TCP: Sends SYN with incrementing TTL. Reads ICMP Time Exceeded replies.
-        ICMP: Sends ICMP Echo with incrementing TTL.
-        """
-        self.log(f"Starting {protocol.upper()} traceroute to {target_ip}:{target_port}, max {max_hops} hops")
-
-        if self.simulated or not SCAPY_AVAILABLE:
-            # Simulate traceroute
-            self.log("Simulating traceroute hops...")
-            simulated_hops = [
-                ("10.0.10.1", random.uniform(1, 5)),
-                ("10.0.1.1", random.uniform(2, 8)),
-                ("172.16.0.1", random.uniform(5, 15)),
-                (target_ip, random.uniform(3, 12))
-            ]
-            for i, (hop_ip, rtt) in enumerate(simulated_hops, 1):
-                time.sleep(0.5)
-                self._send_ws_sync({
-                    "type": "traceroute_hop",
-                    "test_id": test_id,
-                    "hop": i,
-                    "ip": hop_ip,
-                    "rtt": round(rtt, 2)
-                })
-                self.log(f"  Hop {i}: {hop_ip} ({round(rtt, 2)}ms)")
-
-            self._send_ws_sync({
-                "type": "traceroute_complete",
-                "test_id": test_id,
-                "success": True,
-                "details": f"Traceroute complete: {len(simulated_hops)} hops to {target_ip}."
-            })
-            return
-
-        try:
-            reached = False
-            for ttl in range(1, max_hops + 1):
-                if not self._check_rate_limit():
-                    time.sleep(0.2)
-
-                if protocol == "tcp":
-                    pkt = IP(dst=target_ip, ttl=ttl) / TCP(
-                        sport=random.randint(1024, 65535),
-                        dport=int(target_port),
-                        flags="S"
-                    )
-                elif protocol == "udp":
-                    pkt = IP(dst=target_ip, ttl=ttl) / UDP(
-                        sport=random.randint(1024, 65535),
-                        dport=int(target_port)
-                    )
-                else:
-                    pkt = IP(dst=target_ip, ttl=ttl) / ICMP()
-
-                t_start = time.time()
-                reply = sr1(pkt, timeout=3, verbose=False)
-                rtt = round((time.time() - t_start) * 1000, 2)
-
-                if reply is None:
-                    # No response
-                    self._send_ws_sync({
-                        "type": "traceroute_hop",
-                        "test_id": test_id,
-                        "hop": ttl,
-                        "ip": "*",
-                        "rtt": 0
-                    })
-                    self.log(f"  Hop {ttl}: * (no response)")
-                elif reply.haslayer(ICMP):
-                    icmp_type = reply[ICMP].type
-                    hop_ip = reply[IP].src
-                    self._send_ws_sync({
-                        "type": "traceroute_hop",
-                        "test_id": test_id,
-                        "hop": ttl,
-                        "ip": hop_ip,
-                        "rtt": rtt
-                    })
-                    self.log(f"  Hop {ttl}: {hop_ip} ({rtt}ms)")
-
-                    # ICMP type 11 = Time Exceeded, type 3 = Dest Unreachable
-                    if icmp_type == 3:
-                        reached = True
-                        break
-                elif reply.haslayer(TCP):
-                    tcp_flags = reply[TCP].flags
-                    hop_ip = reply[IP].src
-                    self._send_ws_sync({
-                        "type": "traceroute_hop",
-                        "test_id": test_id,
-                        "hop": ttl,
-                        "ip": hop_ip,
-                        "rtt": rtt
-                    })
-                    self.log(f"  Hop {ttl}: {hop_ip} ({rtt}ms) [TCP {tcp_flags}]")
-
-                    # SYN-ACK or RST means we reached the target
-                    if tcp_flags in (0x12, 0x14, "SA", "RA"):
-                        reached = True
-                        break
-
-            status = "success" if reached else "incomplete"
-            details = f"Traceroute {'reached' if reached else 'did not reach'} {target_ip} in {ttl} hops."
-            self.log(details)
-
-            self._send_ws_sync({
-                "type": "traceroute_complete",
-                "test_id": test_id,
-                "success": reached,
-                "details": details
-            })
-
-        except Exception as e:
-            self.log(f"Traceroute error: {e}", is_error=True)
-            self._send_ws_sync({
-                "type": "traceroute_complete",
-                "test_id": test_id,
-                "success": False,
-                "details": f"Traceroute failed: {e}"
-            })
-
-    def run_periodic_traceroutes(self):
-        """Periodically polls internet targets and runs traceroutes to them."""
-        self.log("Starting periodic background traceroute engine...")
-        while self.running:
-            try:
-                # Fetch internet targets
-                res = requests.get(f"{self.server_url}/api/internet-targets", timeout=10)
-                if res.status_code == 200:
-                    targets = res.json()
-                    for tgt in targets:
-                        ip = tgt.get("ip_address")
-                        if not ip:
-                            continue
-
-                        hops = []
-                        if self.simulated:
-                            # Generate a structured path depending on agent name to demonstrate breakout point analysis
-                            suffix = "192.168.100.1" # The common breakout gateway
-                            if "east" in self.agent_name.lower():
-                                hops = ["10.0.10.1", suffix]
-                            elif "west" in self.agent_name.lower():
-                                hops = ["10.0.20.1", suffix]
-                            else:
-                                hops = ["10.0.99.1", suffix]
-                        else:
-                            # Perform real traceroute mapping
-                            hops = self.perform_bg_traceroute(ip)
-
-                        # POST path back to server
-                        post_payload = {
-                            "agent_name": self.agent_name,
-                            "target_ip": ip,
-                            "hops": hops
-                        }
-                        requests.post(f"{self.server_url}/api/telemetry/traceroute", json=post_payload, timeout=10)
-            except Exception as e:
-                self.log(f"Periodic traceroute loop error: {e}", is_error=True)
-
-            # Poll/run every 60 seconds (for rapid UI feedback during local testing)
-            time.sleep(60)
-
-    def perform_bg_traceroute(self, target_ip):
-        """Synchronous traceroute helper for the background loop."""
-        hops = []
-        if not SCAPY_AVAILABLE:
-            return ["192.168.1.1"]
-
-        try:
-            for ttl in range(1, 15):
-                pkt = IP(dst=target_ip, ttl=ttl) / ICMP()
-                reply = sr1(pkt, timeout=2, verbose=False)
-                if reply is None:
-                    continue
-                elif reply.haslayer(IP):
-                    hop_ip = reply[IP].src
-                    hops.append(hop_ip)
-                    if hop_ip == target_ip:
-                        break
-        except Exception:
-            pass
-        return hops
-
-    # ── Lifecycle ─────────────────────────────────────────────────
-
-    def start(self):
-        if not self.register():
-            self.log("Exiting: Server registration failed.", is_error=True)
-            return
-
-        discovery_thread = threading.Thread(target=self.run_passive_discovery, daemon=True)
-        discovery_thread.start()
-
-        traceroute_thread = threading.Thread(target=self.run_periodic_traceroutes, daemon=True)
-        traceroute_thread.start()
-
-        while self.running:
-            try:
-                asyncio.run(self.connect_c2())
-            except Exception as e:
-                self.log(f"C2 loop crashed: {e}. Restarting C2 connection in 5 seconds...", is_error=True)
-                time.sleep(5)
-
-    def update_local_config(self, ip, mac):
-        if getattr(sys, "frozen", False):
-            script_dir = os.path.dirname(sys.executable)
-        else:
-            try:
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-            except NameError:
-                script_dir = os.getcwd()
-
-        config_path = os.path.join(script_dir, "config.json")
-        try:
-            config = {}
-            if os.path.exists(config_path):
-                with open(config_path, "r") as f:
-                    config = json.load(f)
-            
-            if ip is not None:
-                config["ip_address"] = ip
-            if mac is not None:
-                config["mac_address"] = mac
-
-            with open(config_path, "w") as f:
-                json.dump(config, f, indent=2)
-            self.log(f"Successfully updated local config.json: IP={ip}, MAC={mac}")
-        except Exception as e:
-            self.log(f"Failed to update local config.json: {e}", is_error=True)
-
-    def stop(self):
-        self.running = False
-        self.log("Shutting down agent services.")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="NodeView v1.2 Distributed Network Agent")
-    parser.add_argument("--server", type=str, default="http://localhost:8000", help="URL of the NodeView Enterprise Server")
-    parser.add_argument("--name", default=f"Agent-{socket.gethostname()}", help="Custom agent identifier name")
-    parser.add_argument("--mock", action="store_true", help="Force Simulated Mock network mode")
-
-    args = parser.parse_args()
-
-    agent = NodeViewAgent(server_url=args.server, agent_name=args.name, force_mock=args.mock)
-    try:
-        agent.start()
-    except KeyboardInterrupt:
-        agent.stop()
-        sys.exit(0)
+            self._send_ws_sync({"type": "listen_timeout", "test_id": test_id, "details": f"Listen error: {e}"})

@@ -39,7 +39,7 @@ except Exception as e:
 if WINDOWS_SERVICE_SUPPORTED:
     class NodeViewAgentService(win32serviceutil.ServiceFramework):
         _svc_name_ = "NodeViewAgent"
-        _svc_display_name_ = "NodeView v1.2 Distributed Agent"
+        _svc_display_name_ = "NodeView v1.3 Distributed Agent"
         _svc_description_ = "Distributed passive network mapping and active segmentation testing visualizer daemon."
 
         def __init__(self, args):
@@ -137,35 +137,18 @@ if __name__ == '__main__':
             servicemanager.Initialize()
             servicemanager.PrepareToHostSingle(NodeViewAgentService)
             servicemanager.StartServiceCtrlDispatcher()
-        except Exception as e:
-            # If start service controller fails (e.g. run directly by user double-clicking it)
-            log_startup_error(f"Service dispatcher failed: {e}. Falling back to standard console mode...")
-            try:
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                if script_dir not in sys.path:
-                    sys.path.append(script_dir)
-                from agent import NodeViewAgent
-                agent = NodeViewAgent(server_url="http://localhost:8000", agent_name=f"Agent-Console-{socket.gethostname()}")
-                agent.start()
-            except Exception as ex:
-                log_startup_error(f"Console fallback crashed: {ex}")
-                time.sleep(10)
-                sys.exit(1)
-            sys.exit(0)
-        except BaseException as e:
+        except (Exception, BaseException) as e:
             # Catch pywintypes.error if it doesn't inherit from Exception
-            log_startup_error(f"Service dispatcher failed (BaseException): {e}. Falling back to standard console mode...")
+            log_startup_error(f"Service dispatcher failed (interactive mode): {e}. Elevating to install background service...")
             try:
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                if script_dir not in sys.path:
-                    sys.path.append(script_dir)
-                from agent import NodeViewAgent
-                agent = NodeViewAgent(server_url="http://localhost:8000", agent_name=f"Agent-Console-{socket.gethostname()}")
-                agent.start()
+                import ctypes
+                exe_path = sys.executable
+                svc_name = NodeViewAgentService._svc_name_
+                # Run cmd as admin to install and start
+                cmd_args = f'/c ""{exe_path}" install && net start {svc_name}"'
+                ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", cmd_args, None, 0)
             except Exception as ex:
-                log_startup_error(f"Console fallback crashed: {ex}")
-                time.sleep(10)
-                sys.exit(1)
+                log_startup_error(f"UAC elevation failed: {ex}")
             sys.exit(0)
     else:
         # Command line utilities (install, start, stop, remove, etc.)
