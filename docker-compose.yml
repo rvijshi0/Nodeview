@@ -32,8 +32,8 @@ services:
   # 3. Backend C2 application (FastAPI + Websockets C2 + Ingestion endpoints)
   backend-api:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./server/Dockerfile
     container_name: nodeview-api
     ports:
       - "8000:8000"
