@@ -387,19 +387,28 @@ def fetch_graph_topology(db: Session = Depends(get_pg_db)):
                 except:
                     return False
             
-            local_path = []
-            for hop in path:
-                if not is_private(hop):
-                    break
-                local_path.append(hop)
-            if not local_path:
-                continue
+            # Clean path to exclude target IP (it is added as the final target node)
+            clean_path = [hop for hop in path if hop != tgt_ip]
+            
+            # Find the index of the last private hop to mark as breakout
+            last_private_idx = -1
+            for idx, hop in enumerate(clean_path):
+                if is_private(hop):
+                    last_private_idx = idx
 
             # Loop hops and create hop nodes
-            for idx, hop_ip in enumerate(local_path):
-                # The last private hop is the breakout firewall
-                is_last_hop = (idx == len(local_path) - 1)
-                hop_type = "firewall" if is_last_hop else "switch"
+            for idx, hop_ip in enumerate(clean_path):
+                
+                # Determine type and label
+                if idx == last_private_idx:
+                    hop_type = "firewall"
+                    label = f"Breakout Gateway ({hop_ip})"
+                elif is_private(hop_ip):
+                    hop_type = "switch"
+                    label = f"Hop ({hop_ip})"
+                else:
+                    hop_type = "internet"
+                    label = f"Internet Hop ({hop_ip})"
 
                 hop_node_id = f"hop_{hop_ip}"
 
@@ -407,7 +416,7 @@ def fetch_graph_topology(db: Session = Depends(get_pg_db)):
                     nodes.append({
                         "data": {
                             "id": hop_node_id,
-                            "label": f"Breakout Gateway ({hop_ip})" if is_last_hop else f"Hop ({hop_ip})",
+                            "label": label,
                             "type": hop_type,
                             "ip": hop_ip
                         }
