@@ -380,7 +380,7 @@ def fetch_graph_topology(db: Session = Depends(get_pg_db)):
     traceroutes = db.query(AgentTraceroute).all()
 
     if not targets and not traceroutes:
-        return base_topo
+        return {"nodes": nodes, "edges": edges}
 
     # Set of existing node IDs and edge keys to avoid duplicate graph elements
     existing_node_ids = {n["data"]["id"] for n in nodes}
