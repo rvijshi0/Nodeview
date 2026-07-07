@@ -334,7 +334,7 @@ def fetch_graph_topology(db: Session = Depends(get_pg_db)):
     to_remove_nodes = set()
     to_remove_edges = set()
     for agent_id, dev_ids in agent_devices.items():
-        if len(dev_ids) > 1:
+        if len(dev_ids) > 2:
             agent_name = agent_id
             for n in nodes:
                 if n["data"]["id"] == agent_id:
@@ -736,6 +736,12 @@ async def push_agent_telemetry(payload: dict = Body(...), x_api_key: str = Heade
     agent_mac = agent.mac_address.lower() if agent.mac_address else f"agent_{agent.name}".lower()
 
     # Ingest discovered devices into Neo4j
+    neo4j_store.merge_agent_node(
+        name=agent.name,
+        ip=agent.ip_address or "Unknown",
+        mac=agent_mac,
+        label=agent.name
+    )
     for dev in devices:
         ip = dev.get("ip")
         mac = dev.get("mac", "")
