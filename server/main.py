@@ -7,6 +7,7 @@ import uuid
 import secrets
 import zipfile
 from typing import Dict, List, Optional
+import time
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Header, status, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -147,6 +148,28 @@ def change_password(payload: dict = Body(...), db: Session = Depends(get_pg_db))
     return {"status": "success", "message": "Password updated successfully"}
 
 
+# --- System Settings APIs ---
+
+@app.get("/api/settings/{key}")
+def get_setting(key: str, db: Session = Depends(get_pg_db)):
+    setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if setting:
+        return {"key": key, "value": setting.value}
+    return {"key": key, "value": None}
+
+@app.post("/api/settings/{key}")
+def set_setting(key: str, payload: dict = Body(...), db: Session = Depends(get_pg_db)):
+    value = str(payload.get("value", ""))
+    setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if setting:
+        setting.value = value
+    else:
+        setting = SystemSetting(key=key, value=value)
+        db.add(setting)
+    db.commit()
+    return {"status": "success", "key": key, "value": value}
+
+
 # --- Network/VLAN Configuration APIs ---
 
 @app.get("/api/networks")
@@ -255,12 +278,49 @@ async def push_agent_traceroute(payload: dict = Body(...), db: Session = Depends
 
 # --- Topology REST APIs ---
 
+def get_offline_timeout(db: Session):
+    timeout_setting = db.query(SystemSetting).filter(SystemSetting.key == "auto_remove_timeout_mins").first()
+    return int(timeout_setting.value) if timeout_setting and timeout_setting.value.isdigit() else 0
+
+def filter_offline_nodes(nodes, edges, timeout_mins, return_offline=False):
+    if timeout_mins <= 0:
+        return nodes, edges if not return_offline else ([], [])
+        
+    current_time_ms = time.time() * 1000
+    timeout_ms = timeout_mins * 60 * 1000
+    
+    filtered_nodes = []
+    offline_nodes = []
+    
+    for n in nodes:
+        last_seen = n["data"].get("last_seen")
+        is_offline = False
+        if last_seen and (current_time_ms - last_seen > timeout_ms):
+            is_offline = True
+            
+        # Agent nodes are kept active based on different criteria but here we apply it universally for simplicity
+        if is_offline:
+            offline_nodes.append(n)
+        else:
+            filtered_nodes.append(n)
+            
+    if return_offline:
+        return offline_nodes, []
+        
+    active_ids = {n["data"]["id"] for n in filtered_nodes}
+    filtered_edges = [e for e in edges if e["data"]["source"] in active_ids and e["data"]["target"] in active_ids]
+    
+    return filtered_nodes, filtered_edges
+
 @app.get("/api/topology")
 def fetch_graph_topology(db: Session = Depends(get_pg_db)):
     # Returns merged node relationships from Neo4j Connector (or fallback mock topology)
     base_topo = neo4j_store.get_topology_data()
-    nodes = base_topo.get("nodes", [])
-    edges = base_topo.get("edges", [])
+    raw_nodes = base_topo.get("nodes", [])
+    raw_edges = base_topo.get("edges", [])
+    
+    timeout_mins = get_offline_timeout(db)
+    nodes, edges = filter_offline_nodes(raw_nodes, raw_edges, timeout_mins)
 
     # Grouping logic for discovered nodes
     agent_devices = {}
@@ -454,10 +514,13 @@ def fetch_graph_topology(db: Session = Depends(get_pg_db)):
     return {"nodes": nodes, "edges": edges}
 
 @app.get("/api/devices")
-def get_all_devices():
+def get_all_devices(db: Session = Depends(get_pg_db)):
     base_topo = neo4j_store.get_topology_data()
-    nodes = base_topo.get("nodes", [])
-    edges = base_topo.get("edges", [])
+    raw_nodes = base_topo.get("nodes", [])
+    raw_edges = base_topo.get("edges", [])
+    
+    timeout_mins = get_offline_timeout(db)
+    nodes, edges = filter_offline_nodes(raw_nodes, raw_edges, timeout_mins)
     
     devices = []
     # Identify agent mapped for each device
@@ -481,7 +544,47 @@ def get_all_devices():
             devices.append(n["data"])
     return devices
 
-# --- Agent REST APIs ---
+@app.get("/api/devices/deleted")
+def get_deleted_devices(db: Session = Depends(get_pg_db)):
+    base_topo = neo4j_store.get_topology_data()
+    raw_nodes = base_topo.get("nodes", [])
+    raw_edges = base_topo.get("edges", [])
+    
+    timeout_mins = get_offline_timeout(db)
+    # If timeout is 0 (disabled), then nothing is marked as auto-deleted
+    if timeout_mins <= 0:
+        return []
+        
+    offline_nodes, _ = filter_offline_nodes(raw_nodes, raw_edges, timeout_mins, return_offline=True)
+    
+    devices = []
+    agent_map = {}
+    for e in raw_edges:
+        if e["data"].get("type") == "DISCOVERED_BY":
+            agent_map[e["data"]["source"]] = e["data"]["target"]
+
+    for n in offline_nodes:
+        node_type = n["data"].get("type", "")
+        if node_type not in ["agent", "internet", "firewall", "switch", "router", "ap", "wlc", "server", "cluster_group"]:
+            discovered_by = "Unknown"
+            agent_id = agent_map.get(n["data"]["id"])
+            if agent_id:
+                for a in raw_nodes:
+                    if a["data"]["id"] == agent_id:
+                        discovered_by = a["data"].get("label", agent_id)
+                        break
+            
+            devices.append({
+                "type": node_type,
+                "label": n["data"].get("label", ""),
+                "ip": n["data"].get("ip", ""),
+                "mac": n["data"].get("mac", ""),
+                "discovered_by": discovered_by
+            })
+            
+    return devices
+
+# --- Agent Management APIs ---
 
 @app.get("/api/agents")
 def list_registered_agents(db: Session = Depends(get_pg_db)):

@@ -200,6 +200,9 @@ function renderDashboard() {
                     <button class="nav-item" data-tab="discovered_nodes">
                         <span class="nav-icon">${ICONS.users}</span> Discovered Nodes
                     </button>
+                    <button class="nav-item" data-tab="deleted_nodes">
+                        <span class="nav-icon">${ICONS.trash}</span> Auto Deleted Hosts
+                    </button>
                     <button class="nav-item" data-tab="downloads">
                         <span class="nav-icon">${ICONS.download}</span> Downloads
                     </button>
@@ -271,6 +274,7 @@ function switchTab(tabName) {
         case "agents": renderAgentsTab(viewport); break;
         case "networks": renderNetworksTab(viewport); break;
         case "discovered_nodes": renderDiscoveredNodesTab(); break;
+        case "deleted_nodes": renderDeletedHostsTab(viewport); break;
         case "downloads": renderDownloadsTab(viewport); break;
         case "settings": renderSettingsTab(viewport); break;
     }
@@ -723,6 +727,59 @@ async function renderDiscoveredNodesTab(devices) {
     `;
 }
 
+async function renderDeletedHostsTab(viewport) {
+    if (!viewport) viewport = document.getElementById("page-content");
+    viewport.innerHTML = `<div style="padding:40px; text-align:center;">${ICONS.refreshCw} Loading deleted hosts...</div>`;
+    
+    let devices = [];
+    try {
+        const res = await fetch("/api/devices/deleted");
+        devices = await res.json();
+    } catch (e) {
+        logConsole("Failed to fetch deleted hosts", "error");
+    }
+
+    let rows = "";
+    if (devices && devices.length > 0) {
+        devices.forEach(dev => {
+            rows += `<tr>
+                <td><span class="badge-device ${dev.type}">${dev.type}</span></td>
+                <td>${dev.label}</td>
+                <td style="font-family: 'Fira Code', monospace; font-size: 0.85rem;">${dev.ip || "N/A"}</td>
+                <td style="font-family: 'Fira Code', monospace; font-size: 0.85rem;">${dev.mac || "N/A"}</td>
+                <td><span class="pro-tag">${dev.discovered_by || "Unknown"}</span></td>
+            </tr>`;
+        });
+    } else {
+        rows = `<tr><td colspan="5" style="text-align: center; color: var(--text-dim);">No deleted hosts found.</td></tr>`;
+    }
+
+    viewport.innerHTML = `
+        <div class="card" style="margin: 20px;">
+            <div class="card-header">
+                <h3>${ICONS.trash} Auto Deleted Hosts</h3>
+                <p class="card-subtitle">List of offline hosts automatically removed from the active topology.</p>
+            </div>
+            <div class="table-container">
+                <table class="data-table" style="table-layout: auto; white-space: nowrap;">
+                    <thead>
+                        <tr>
+                            <th class="resizable-th">Device Type</th>
+                            <th class="resizable-th">Hostname / Manufacturer</th>
+                            <th class="resizable-th">IP Address</th>
+                            <th class="resizable-th">MAC Address</th>
+                            <th class="resizable-th">Discovered By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // TAB 2: TROUBLESHOOT
 
@@ -1055,6 +1112,21 @@ function renderNetworksTab(viewport) {
     viewport.innerHTML = `
         <div class="networks-layout">
             <div class="card">
+                <h3>${ICONS.settings} Global Settings</h3>
+                <p class="card-subtitle">Configure system-wide behaviors.</p>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Auto Remove Offline Nodes (Minutes)</label>
+                        <input type="number" id="setting-auto-remove" placeholder="0 to disable" min="0">
+                        <small style="color:var(--text-muted);display:block;margin-top:4px;">Nodes not seen for this duration will be moved to Deleted Hosts.</small>
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="btn-save-settings" style="margin-top: 18px;">
+                    Save Settings
+                </button>
+            </div>
+            
+            <div class="card">
                 <h3>${ICONS.globe} Define Network / VLAN Range</h3>
                 <p class="card-subtitle">Configure IP ranges for agent-based peer scanning. Agents auto-match their subnet and scan at the defined frequency.</p>
                 <div class="form-grid">
@@ -1116,8 +1188,42 @@ function renderNetworksTab(viewport) {
 
     loadNetworksGrid();
     loadInternetTargetsGrid();
+    loadSystemSettings();
     document.getElementById("btn-save-net").addEventListener("click", saveSubnetConfig);
     document.getElementById("btn-save-target").addEventListener("click", saveInternetTarget);
+    document.getElementById("btn-save-settings").addEventListener("click", saveSystemSettings);
+}
+
+async function loadSystemSettings() {
+    try {
+        const res = await fetch("/api/settings/auto_remove_timeout_mins");
+        if (res.ok) {
+            const data = await res.json();
+            if (data && data.value) {
+                document.getElementById("setting-auto-remove").value = data.value;
+            }
+        }
+    } catch (e) {
+        logConsole("Failed to load settings", "error");
+    }
+}
+
+async function saveSystemSettings() {
+    const val = document.getElementById("setting-auto-remove").value;
+    try {
+        const res = await fetch("/api/settings/auto_remove_timeout_mins", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value: val })
+        });
+        if (res.ok) {
+            logConsole("Settings saved successfully", "success");
+        } else {
+            logConsole("Failed to save settings", "error");
+        }
+    } catch (e) {
+        logConsole("Error saving settings", "error");
+    }
 }
 
 async function loadNetworksGrid() {
