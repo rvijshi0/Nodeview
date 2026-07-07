@@ -704,7 +704,7 @@ async function renderDiscoveredNodesTab(devices) {
                 <p class="card-subtitle">List of peripheral devices discovered by agents on their local VLANs.</p>
             </div>
             <div class="table-container">
-                <table>
+                <table class="data-table" style="table-layout: auto; white-space: nowrap;">
                     <thead>
                         <tr>
                             <th class="resizable-th">Device Type</th>
