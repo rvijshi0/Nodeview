@@ -28,7 +28,8 @@ const DEVICE_SVGS = {
     mobile: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="mobileGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#d97706"/></linearGradient></defs><circle cx="32" cy="32" r="28" fill="#0f172a" stroke="#f59e0b" stroke-width="2.5"/><rect x="22" y="16" width="20" height="32" rx="3" fill="url(#mobileGrad)"/><rect x="24" y="20" width="16" height="24" fill="#0f172a"/><circle cx="32" cy="46" r="1.5" fill="#ffffff"/></svg>`),
     desktop: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="desktopGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#60a5fa"/><stop offset="100%" stop-color="#2563eb"/></linearGradient></defs><circle cx="32" cy="32" r="28" fill="#0f172a" stroke="#60a5fa" stroke-width="2.5"/><rect x="18" y="20" width="28" height="18" rx="2" fill="url(#desktopGrad)"/><rect x="20" y="22" width="24" height="14" fill="#0f172a"/><path d="M28 42h8M32 38v4" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round"/></svg>`),
     iot: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="iotGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ec4899"/><stop offset="100%" stop-color="#a855f7"/></linearGradient></defs><circle cx="32" cy="32" r="28" fill="#0f172a" stroke="#ec4899" stroke-width="2.5"/><rect x="22" y="22" width="20" height="20" rx="2" fill="url(#iotGrad)"/><rect x="26" y="26" width="12" height="12" fill="#0f172a"/><path d="M32 16v6M32 42v6M16 32h6M42 32h6" stroke="#ec4899" stroke-width="2" stroke-linecap="round"/></svg>`),
-    server: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="serverGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#4f46e5"/></linearGradient></defs><circle cx="32" cy="32" r="28" fill="#0f172a" stroke="#6366f1" stroke-width="2.5"/><rect x="18" y="16" width="28" height="10" rx="1" fill="url(#serverGrad)"/><rect x="18" y="28" width="28" height="10" rx="1" fill="url(#serverGrad)"/><rect x="18" y="40" width="28" height="10" rx="1" fill="url(#serverGrad)"/><circle cx="22" cy="21" r="1.5" fill="#10b981"/><circle cx="22" cy="33" r="1.5" fill="#10b981"/><circle cx="22" cy="45" r="1.5" fill="#10b981"/><circle cx="26" cy="21" r="1.5" fill="#ffffff" opacity="0.8"/><circle cx="26" cy="33" r="1.5" fill="#ffffff" opacity="0.8"/><circle cx="26" cy="45" r="1.5" fill="#ffffff" opacity="0.8"/></svg>`)
+    server: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="serverGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#4f46e5"/></linearGradient></defs><circle cx="32" cy="32" r="28" fill="#0f172a" stroke="#6366f1" stroke-width="2.5"/><rect x="18" y="16" width="28" height="10" rx="1" fill="url(#serverGrad)"/><rect x="18" y="28" width="28" height="10" rx="1" fill="url(#serverGrad)"/><rect x="18" y="40" width="28" height="10" rx="1" fill="url(#serverGrad)"/><circle cx="22" cy="21" r="1.5" fill="#10b981"/><circle cx="22" cy="33" r="1.5" fill="#10b981"/><circle cx="22" cy="45" r="1.5" fill="#10b981"/><circle cx="26" cy="21" r="1.5" fill="#ffffff" opacity="0.8"/><circle cx="26" cy="33" r="1.5" fill="#ffffff" opacity="0.8"/><circle cx="26" cy="45" r="1.5" fill="#ffffff" opacity="0.8"/></svg>`),
+    cluster: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="clusterGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#6d28d9"/></linearGradient></defs><circle cx="32" cy="32" r="28" fill="#0f172a" stroke="#8b5cf6" stroke-width="2.5"/><circle cx="32" cy="32" r="22" fill="url(#clusterGrad)" opacity="0.2"/><path d="M24 38v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2m-6-10a4 4 0 1 1 8 0 4 4 0 0 1-8 0zm14 10v-1.5a3.5 3.5 0 0 0-3.5-3.5h-2m2.5-8.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0zm-28 10v-1.5a3.5 3.5 0 0 1 3.5-3.5h2m-2.5-8.5a3.5 3.5 0 1 0 7 0 3.5 3.5 0 0 0-7 0z" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`)
 };
 
 // ── SVG Icon Helpers ──────────────────────────────────────────────
@@ -428,21 +429,10 @@ function initCytoscape() {
                 }
             },
             {
-                selector: 'node[type="collapsed_group"]',
+                selector: 'node[type="cluster_group"]',
                 style: {
-                    'background-color': 'rgba(99, 102, 241, 0.15)',
-                    'background-opacity': 0.8,
-                    'color': '#818cf8',
-                    'border-color': '#6366f1',
-                    'border-width': '2px',
-                    'border-style': 'dashed',
-                    'shape': 'ellipse',
-                    'width': '54px',
-                    'height': '54px',
-                    'font-size': '15px',
-                    'font-weight': '800',
-                    'text-valign': 'center',
-                    'text-margin-y': '0px'
+                    'background-image': DEVICE_SVGS.cluster,
+                    'width': '52px', 'height': '52px'
                 }
             },
             {
