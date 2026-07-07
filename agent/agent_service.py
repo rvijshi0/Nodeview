@@ -39,7 +39,7 @@ except Exception as e:
 if WINDOWS_SERVICE_SUPPORTED:
     class NodeViewAgentService(win32serviceutil.ServiceFramework):
         _svc_name_ = "NodeViewAgent"
-        _svc_display_name_ = "NodeView Distributed Agent"
+        _svc_display_name_ = "NodeView v1.0 Distributed Agent"
         _svc_description_ = "Distributed passive network mapping and active segmentation testing visualizer daemon."
 
         def __init__(self, args):

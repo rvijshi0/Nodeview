@@ -27,7 +27,9 @@ except ImportError:
 
 class NodeViewAgent:
     """
-    NodeView Distributed Agent
+    NodeView v1.0 Distributed Agent
+    Handles C2 websocket connection, passive ingestion, active network scanning, 
+    and collaborative connectivity troubleshooting commands.
     
     Capabilities:
     - Register with C2 server and maintain WebSocket link
@@ -1007,8 +1009,8 @@ class NodeViewAgent:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="NodeView Distributed Network Agent")
-    parser.add_argument("--server", default="http://localhost:8000", help="C2 Server URL")
+    parser = argparse.ArgumentParser(description="NodeView v1.0 Distributed Network Agent")
+    parser.add_argument("--server", type=str, default="http://localhost:8000", help="URL of the NodeView Enterprise Server")
     parser.add_argument("--name", default=f"Agent-{socket.gethostname()}", help="Custom agent identifier name")
     parser.add_argument("--mock", action="store_true", help="Force Simulated Mock network mode")
 
