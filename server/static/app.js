@@ -85,7 +85,7 @@ function renderLoginPage() {
                     <div class="login-logo-icon">
                         ${ICONS.activity}
                     </div>
-                    <h2>Node<span class="pro-tag">View</span> v1.4</h2>
+                    <h2>Node<span class="pro-tag">View</span> v1.5</h2>
                     <p>Your entire network, in single sight</p>
                 </div>
                 <div class="login-form">
@@ -175,7 +175,7 @@ function renderDashboard() {
                 <header class="sidebar-header">
                     <div class="logo">
                         ${ICONS.logo}
-                        <span>Node<strong class="pro-tag">View</strong> v1.4</span>
+                        <span>Node<strong class="pro-tag">View</strong> v1.5</span>
                     </div>
                     <div class="system-status">
                         <span class="pulse-indicator"></span>
@@ -195,6 +195,9 @@ function renderDashboard() {
                     </button>
                     <button class="nav-item" data-tab="networks">
                         <span class="nav-icon">${ICONS.globe}</span> Networks
+                    </button>
+                    <button class="nav-item" data-tab="discovered_nodes">
+                        <span class="nav-icon">${ICONS.users}</span> Discovered Nodes
                     </button>
                     <button class="nav-item" data-tab="downloads">
                         <span class="nav-icon">${ICONS.download}</span> Downloads
@@ -324,17 +327,17 @@ function initCytoscape() {
                     'content': 'data(label)',
                     'color': '#cbd5e1',
                     'font-family': 'Inter, sans-serif',
-                    'font-size': '9px',
+                    'font-size': '11px',
                     'font-weight': '600',
                     'text-valign': 'bottom',
-                    'text-margin-y': '7px',
+                    'text-margin-y': '9px',
                     'text-outline-color': '#0a0e1a',
                     'text-outline-width': '2px',
                     'background-fit': 'contain',
                     'background-opacity': 0,
-                    'width': '38px',
-                    'height': '38px',
-                    'overlay-padding': '6px',
+                    'width': '49px',
+                    'height': '49px',
+                    'overlay-padding': '7px',
                     'transition-property': 'width, height',
                     'transition-duration': '0.3s'
                 }
@@ -343,84 +346,84 @@ function initCytoscape() {
                 selector: 'node[type="internet"]',
                 style: {
                     'background-image': DEVICE_SVGS.internet,
-                    'width': '48px', 'height': '48px'
+                    'width': '62px', 'height': '62px'
                 }
             },
             {
                 selector: 'node[type="firewall"]',
                 style: {
                     'background-image': DEVICE_SVGS.firewall,
-                    'width': '42px', 'height': '42px'
+                    'width': '54px', 'height': '54px'
                 }
             },
             {
                 selector: 'node[type="switch"]',
                 style: {
                     'background-image': DEVICE_SVGS.switch,
-                    'width': '42px', 'height': '42px'
+                    'width': '54px', 'height': '54px'
                 }
             },
             {
                 selector: 'node[type="router"]',
                 style: {
                     'background-image': DEVICE_SVGS.router,
-                    'width': '40px', 'height': '40px'
+                    'width': '52px', 'height': '52px'
                 }
             },
             {
                 selector: 'node[type="ap"]',
                 style: {
                     'background-image': DEVICE_SVGS.ap,
-                    'width': '38px', 'height': '38px'
+                    'width': '49px', 'height': '49px'
                 }
             },
             {
                 selector: 'node[type="wlc"]',
                 style: {
                     'background-image': DEVICE_SVGS.wlc,
-                    'width': '38px', 'height': '38px'
+                    'width': '49px', 'height': '49px'
                 }
             },
             {
                 selector: 'node[type="agent"]',
                 style: {
                     'background-image': DEVICE_SVGS.agent,
-                    'width': '40px', 'height': '40px'
+                    'width': '52px', 'height': '52px'
                 }
             },
             {
                 selector: 'node[type="laptop"]',
                 style: {
                     'background-image': DEVICE_SVGS.laptop,
-                    'width': '34px', 'height': '34px'
+                    'width': '44px', 'height': '44px'
                 }
             },
             {
                 selector: 'node[type="mobile"]',
                 style: {
                     'background-image': DEVICE_SVGS.mobile,
-                    'width': '32px', 'height': '32px'
+                    'width': '41px', 'height': '41px'
                 }
             },
             {
                 selector: 'node[type="desktop"]',
                 style: {
                     'background-image': DEVICE_SVGS.desktop,
-                    'width': '34px', 'height': '34px'
+                    'width': '44px', 'height': '44px'
                 }
             },
             {
                 selector: 'node[type="iot"]',
                 style: {
                     'background-image': DEVICE_SVGS.iot,
-                    'width': '32px', 'height': '32px'
+                    'width': '41px', 'height': '41px'
                 }
             },
             {
                 selector: 'node[type="server"]',
                 style: {
                     'background-image': DEVICE_SVGS.server,
-                    'width': '38px', 'height': '38px'
+                    'width': '49px', 'height': '49px'
                 }
             },
             {
@@ -433,9 +436,9 @@ function initCytoscape() {
                     'border-width': '2px',
                     'border-style': 'dashed',
                     'shape': 'ellipse',
-                    'width': '42px',
-                    'height': '42px',
-                    'font-size': '12px',
+                    'width': '54px',
+                    'height': '54px',
+                    'font-size': '15px',
                     'font-weight': '800',
                     'text-valign': 'center',
                     'text-margin-y': '0px'
@@ -478,7 +481,16 @@ function initCytoscape() {
     });
 
     cy.on('tap', 'node', (evt) => {
-        inspectNode(evt.target.data());
+        const data = evt.target.data();
+        if (data.type === 'cluster_group') {
+            document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
+            const tabBtn = document.querySelector(".nav-item[data-tab='discovered_nodes']");
+            if(tabBtn) tabBtn.classList.add("active");
+            currentTab = 'discovered_nodes';
+            renderDiscoveredNodesTab(data.groupList || []);
+        } else {
+            inspectNode(data);
+        }
     });
 
     cy.on('tap', (evt) => {
@@ -665,8 +677,52 @@ function inspectNode(data) {
     `;
 }
 
+function renderDiscoveredNodesTab(devices) {
+    const viewport = document.getElementById("page-content");
+    let rows = "";
+    if (devices && devices.length > 0) {
+        devices.forEach(dev => {
+            rows += `<tr>
+                <td><span class="badge-device ${dev.type}">${dev.type}</span></td>
+                <td>${dev.label}</td>
+                <td style="font-family: 'Fira Code', monospace; font-size: 0.85rem;">${dev.ip || "N/A"}</td>
+                <td style="font-family: 'Fira Code', monospace; font-size: 0.85rem;">${dev.mac || "N/A"}</td>
+                <td><span class="pro-tag">${dev.discovered_by || "Unknown"}</span></td>
+            </tr>`;
+        });
+    } else {
+        rows = `<tr><td colspan="5" style="text-align: center; color: var(--text-dim);">No devices clustered or discovered yet.</td></tr>`;
+    }
+
+    viewport.innerHTML = `
+        <div class="card" style="margin: 20px;">
+            <div class="card-header">
+                <h3>${ICONS.users} Discovered Nodes</h3>
+                <p class="card-subtitle">List of peripheral devices discovered by agents on their local VLANs.</p>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Device Type</th>
+                            <th>Hostname / Label</th>
+                            <th>IP Address</th>
+                            <th>MAC Address</th>
+                            <th>Discovered By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // TAB 2: TROUBLESHOOT
+
 // ═══════════════════════════════════════════════════════════════════
 
 function renderTroubleshootTab(viewport) {

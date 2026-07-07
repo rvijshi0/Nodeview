@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from database_pg import init_pg, get_pg_db, User, NetworkRange, Agent, DiagnosticTest, InternetTarget, AgentTraceroute, SystemSetting
 from database_neo4j import neo4j_store
 
-app = FastAPI(title="NodeView v1.4 Enterprise Server")
+app = FastAPI(title="NodeView v1.5 Enterprise Server")
 
 # Enable CORS
 app.add_middleware(
@@ -221,6 +221,58 @@ def fetch_graph_topology(db: Session = Depends(get_pg_db)):
     nodes = base_topo.get("nodes", [])
     edges = base_topo.get("edges", [])
 
+    # Grouping logic for discovered nodes
+    agent_devices = {}
+    for edge in edges:
+        if edge["data"].get("type") == "DISCOVERED_BY":
+            tgt = edge["data"]["target"]
+            src = edge["data"]["source"]
+            if tgt not in agent_devices: agent_devices[tgt] = []
+            agent_devices[tgt].append(src)
+
+    to_remove_nodes = set()
+    to_remove_edges = set()
+    for agent_id, dev_ids in agent_devices.items():
+        if len(dev_ids) > 1:
+            agent_name = agent_id
+            for n in nodes:
+                if n["data"]["id"] == agent_id:
+                    agent_name = n["data"].get("label", agent_name)
+                    break
+            
+            cluster_node_id = f"cluster_{agent_id}"
+            clustered_data = []
+            for nid in dev_ids:
+                to_remove_nodes.add(nid)
+                for n in nodes:
+                    if n["data"]["id"] == nid:
+                        n["data"]["discovered_by"] = agent_name
+                        clustered_data.append(n["data"])
+                        break
+                for e in edges:
+                    if e["data"]["source"] == nid and e["data"]["target"] == agent_id:
+                        to_remove_edges.add(e["data"]["id"])
+            
+            nodes.append({
+                "data": {
+                    "id": cluster_node_id,
+                    "label": f"{agent_name}+{len(dev_ids)} more",
+                    "type": "cluster_group",
+                    "groupList": clustered_data
+                }
+            })
+            edges.append({
+                "data": {
+                    "id": f"edge_{cluster_node_id}_to_{agent_id}",
+                    "source": cluster_node_id,
+                    "target": agent_id,
+                    "type": "DISCOVERED_BY"
+                }
+            })
+    
+    nodes = [n for n in nodes if n["data"]["id"] not in to_remove_nodes]
+    edges = [e for e in edges if e["data"]["id"] not in to_remove_edges]
+
     # Fetch configured internet targets
     targets = db.query(InternetTarget).all()
     # Fetch active agent traceroutes
@@ -287,13 +339,27 @@ def fetch_graph_topology(db: Session = Depends(get_pg_db)):
 
             prev_node_id = agent_node_id
 
+            import ipaddress
+            def is_private(ip):
+                try:
+                    return ipaddress.ip_address(ip).is_private
+                except:
+                    return False
+            
+            local_path = []
+            for hop in path:
+                local_path.append(hop)
+                if not is_private(hop):
+                    break
+
             # Loop hops and create hop nodes
-            for idx, hop_ip in enumerate(path):
-                # The last hop closest to the internet destination is labeled "firewall" (representing the breakout firewall)
-                is_last_hop = (idx == len(path) - 1)
+            for idx, hop_ip in enumerate(local_path):
+                # The last private hop is the breakout firewall
+                is_last_hop = (idx == len(local_path) - 1)
                 hop_type = "firewall" if is_last_hop else "switch"
 
                 hop_node_id = f"hop_{hop_ip}"
+
                 if hop_node_id not in existing_node_ids:
                     nodes.append({
                         "data": {
@@ -487,7 +553,7 @@ async def push_agent_telemetry(payload: dict = Body(...), x_api_key: str = Heade
         ip = dev.get("ip")
         mac = dev.get("mac", "")
         hostname = dev.get("hostname", ip or "Unknown Peripheral")
-        dtype = dev.get("type", "laptop")
+        dtype = identify_device_type(mac, default=dev.get("type", "laptop"))
 
         neo4j_store.merge_peripheral_device(
             ip=ip,
@@ -574,7 +640,7 @@ def generate_agent_zip(payload: dict = Body(default={}), db: Session = Depends(g
 
         # Add installation README
         zf.writestr("README.txt",
-            f"NodeView v1.4 Agent Package\n"
+            f"NodeView v1.5 Agent Package\n"
             f"==========================\n\n"
             f"Server: http://{ip}:{port}\n\n"
             f"--- Linux (Ubuntu/Debian) ---\n"

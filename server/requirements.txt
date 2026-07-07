@@ -6,3 +6,4 @@ cryptography==41.0.5
 neo4j==5.14.0
 psycopg2-binary==2.9.9
 python-multipart==0.0.6
+mac-vendor-lookup==0.1.12
