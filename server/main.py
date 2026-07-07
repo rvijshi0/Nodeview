@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from database_pg import init_pg, get_pg_db, User, NetworkRange, Agent, DiagnosticTest, InternetTarget, AgentTraceroute, SystemSetting
 from database_neo4j import neo4j_store
 
-app = FastAPI(title="NodeView v1.0 Enterprise Server")
+app = FastAPI(title="NodeView v1.1 Enterprise Server")
 
 # Enable CORS
 app.add_middleware(
@@ -574,7 +574,7 @@ def generate_agent_zip(payload: dict = Body(default={}), db: Session = Depends(g
 
         # Add installation README
         zf.writestr("README.txt",
-            f"NodeView v1.0 Agent Package\n"
+            f"NodeView v1.1 Agent Package\n"
             f"==========================\n\n"
             f"Server: http://{ip}:{port}\n\n"
             f"--- Linux (Ubuntu/Debian) ---\n"
