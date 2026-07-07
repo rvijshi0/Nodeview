@@ -39,7 +39,7 @@ except Exception as e:
 if WINDOWS_SERVICE_SUPPORTED:
     class NodeViewAgentService(win32serviceutil.ServiceFramework):
         _svc_name_ = "NodeViewAgent"
-        _svc_display_name_ = "NodeView v1.3 Distributed Agent"
+        _svc_display_name_ = "NodeView v1.4 Distributed Agent"
         _svc_description_ = "Distributed passive network mapping and active segmentation testing visualizer daemon."
 
         def __init__(self, args):
@@ -139,13 +139,41 @@ if __name__ == '__main__':
             servicemanager.StartServiceCtrlDispatcher()
         except (Exception, BaseException) as e:
             # Catch pywintypes.error if it doesn't inherit from Exception
-            log_startup_error(f"Service dispatcher failed (interactive mode): {e}. Elevating to install background service...")
+            log_startup_error(f"Service dispatcher failed (interactive mode): {e}. Elevating to install background service and Npcap...")
             try:
                 import ctypes
+                import subprocess
                 exe_path = sys.executable
                 svc_name = NodeViewAgentService._svc_name_
+                
+                # Try to locate the bundled npcap-setup.exe
+                npcap_installer = None
+                if hasattr(sys, '_MEIPASS'):
+                    npcap_installer = os.path.join(sys._MEIPASS, 'npcap-setup.exe')
+                
+                if npcap_installer and os.path.exists(npcap_installer):
+                    # We have to extract it somewhere temporary because it needs admin, and we can just let UAC handle the whole batch script
+                    batch_script = f"""@echo off
+echo Installing Npcap driver...
+"{npcap_installer}" /S /winpcap_mode=0 /loopback_support=0 /admin_only=1
+echo Installing Service...
+"{exe_path}" install
+echo Starting Service...
+net start {svc_name}
+"""
+                else:
+                    batch_script = f"""@echo off
+echo Installing Service...
+"{exe_path}" install
+echo Starting Service...
+net start {svc_name}
+"""
+                temp_bat = os.path.join(os.environ.get('TEMP', 'C:\Windows\Temp'), 'install_agent.bat')
+                with open(temp_bat, 'w') as f:
+                    f.write(batch_script)
+
                 # Run cmd as admin to install and start
-                cmd_args = f'/c ""{exe_path}" install && net start {svc_name}"'
+                cmd_args = f'/c "{temp_bat}"'
                 ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", cmd_args, None, 0)
             except Exception as ex:
                 log_startup_error(f"UAC elevation failed: {ex}")
