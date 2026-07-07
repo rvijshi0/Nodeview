@@ -708,7 +708,7 @@ async function renderDiscoveredNodesTab(devices) {
                     <thead>
                         <tr>
                             <th class="resizable-th">Device Type</th>
-                            <th class="resizable-th">Hostname / Label</th>
+                            <th class="resizable-th">Hostname / Manufacturer</th>
                             <th class="resizable-th">IP Address</th>
                             <th class="resizable-th">MAC Address</th>
                             <th class="resizable-th">Discovered By</th>

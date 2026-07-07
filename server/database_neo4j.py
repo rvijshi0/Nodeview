@@ -25,19 +25,21 @@ class Neo4jConnector:
         if self.driver:
             self.driver.close()
 
-    def merge_agent_node(self, name, ip, mac):
+    def merge_agent_node(self, name, ip, mac, label=None):
         """Merges an active monitoring agent into the topology graph."""
         if not self.driver:
             return
+        if not label:
+            label = name
         query = """
         MERGE (a:Agent {mac: $mac})
-        ON CREATE SET a.name = $name, a.ip = $ip, a.type = 'agent', a.last_seen = timestamp()
-        ON MATCH SET a.name = $name, a.ip = $ip, a.last_seen = timestamp()
+        ON CREATE SET a.name = $name, a.label = $label, a.ip = $ip, a.type = 'agent', a.last_seen = timestamp()
+        ON MATCH SET a.name = $name, a.label = $label, a.ip = $ip, a.last_seen = timestamp()
         RETURN a
         """
         try:
             with self.driver.session() as session:
-                session.run(query, name=name, ip=ip, mac=mac)
+                session.run(query, name=name, label=label, ip=ip, mac=mac)
         except Exception as e:
             print(f"[Neo4j] merge_agent_node failed: {e}. Disabling Neo4j driver.")
             self.driver = None

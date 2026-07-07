@@ -42,6 +42,22 @@ def identify_device_type(mac_addr, default="laptop"):
     except Exception:
         return default
 
+def identify_manufacturer(mac_addr):
+    if not mac_addr:
+        return "Unknown"
+    mac_clean = mac_addr.replace("-", ":").lower()
+    
+    if len(mac_clean) >= 2:
+        if mac_clean[1] in ['2', '6', 'a', 'e']:
+            return "Private-MAC"
+
+    if mac_lookup:
+        try:
+            return mac_lookup.lookup(mac_addr)
+        except Exception:
+            pass
+    return "Unknown"
+
 app = FastAPI(title="NodeView v1.5.1 Enterprise Server")
 
 # Enable CORS
@@ -533,7 +549,9 @@ def register_agent(payload: dict = Body(...), db: Session = Depends(get_pg_db)):
         db.refresh(agent)
 
     # Write into Neo4j graph store
-    neo4j_store.merge_agent_node(name=agent.name, ip=agent.ip_address, mac=agent.mac_address)
+    manufacturer = identify_manufacturer(agent.mac_address)
+    label = f"{agent.name} - {manufacturer}" if manufacturer != "Unknown" else agent.name
+    neo4j_store.merge_agent_node(name=agent.name, ip=agent.ip_address, mac=agent.mac_address, label=label)
 
     return {
         "id": agent.id,
@@ -558,7 +576,9 @@ async def edit_agent(agent_id: int, payload: dict = Body(...), db: Session = Dep
 
     # Also update the Neo4j node visualization
     try:
-        neo4j_store.merge_agent_node(name=agent.name, ip=agent.ip_address, mac=agent.mac_address)
+        manufacturer = identify_manufacturer(agent.mac_address)
+        label = f"{agent.name} - {manufacturer}" if manufacturer != "Unknown" else agent.name
+        neo4j_store.merge_agent_node(name=agent.name, ip=agent.ip_address, mac=agent.mac_address, label=label)
     except Exception as e:
         print(f"Failed to update Neo4j node: {e}")
 
@@ -607,13 +627,21 @@ async def push_agent_telemetry(payload: dict = Body(...), x_api_key: str = Heade
     for dev in devices:
         ip = dev.get("ip")
         mac = dev.get("mac", "")
-        hostname = dev.get("hostname", ip or "Unknown Peripheral")
+        raw_hostname = dev.get("hostname", ip or "Unknown Peripheral")
         dtype = identify_device_type(mac, default=dev.get("type", "laptop"))
+        
+        manufacturer = identify_manufacturer(mac)
+        if manufacturer == "Private-MAC":
+            label = "Private-MAC"
+        elif manufacturer != "Unknown":
+            label = manufacturer
+        else:
+            label = raw_hostname
 
         neo4j_store.merge_peripheral_device(
             ip=ip,
             mac=mac,
-            label=hostname,
+            label=label,
             device_type=dtype,
             agent_mac=agent_mac
         )
