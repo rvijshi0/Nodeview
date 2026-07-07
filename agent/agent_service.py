@@ -129,12 +129,32 @@ if __name__ == '__main__':
     if len(sys.argv) == 1:
         # Executed by the Service Control Manager (SCM) or interactive double-click
         try:
+            import pywintypes
+        except ImportError:
+            pass
+
+        try:
             servicemanager.Initialize()
             servicemanager.PrepareToHostSingle(NodeViewAgentService)
             servicemanager.StartServiceCtrlDispatcher()
         except Exception as e:
             # If start service controller fails (e.g. run directly by user double-clicking it)
             log_startup_error(f"Service dispatcher failed: {e}. Falling back to standard console mode...")
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                if script_dir not in sys.path:
+                    sys.path.append(script_dir)
+                from agent import NodeViewAgent
+                agent = NodeViewAgent(server_url="http://localhost:8000", agent_name=f"Agent-Console-{socket.gethostname()}")
+                agent.start()
+            except Exception as ex:
+                log_startup_error(f"Console fallback crashed: {ex}")
+                time.sleep(10)
+                sys.exit(1)
+            sys.exit(0)
+        except BaseException as e:
+            # Catch pywintypes.error if it doesn't inherit from Exception
+            log_startup_error(f"Service dispatcher failed (BaseException): {e}. Falling back to standard console mode...")
             try:
                 script_dir = os.path.dirname(os.path.abspath(__file__))
                 if script_dir not in sys.path:

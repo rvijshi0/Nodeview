@@ -129,46 +129,9 @@ class Neo4jConnector:
         return {"nodes": nodes, "edges": edges}
 
     def get_mock_fallback_topology(self):
-        """Simulates full mock topology for client demonstrations when bolt endpoint is unavailable."""
-        nodes = [
-            {"data": {"id": "fw", "label": "Enterprise Firewall", "type": "firewall", "ip": "10.0.1.1", "mac": "00:0c:29:11:22:33"}},
-            {"data": {"id": "sw1", "label": "Switch (VLAN 10)", "type": "switch", "ip": "10.0.10.1", "mac": "00:01:42:aa:bb:cc"}},
-            {"data": {"id": "wlc", "label": "Wireless Controller", "type": "wlc", "ip": "10.0.10.2", "mac": "00:15:5d:99:88:77"}},
-            {"data": {"id": "ap1", "label": "Access Point East", "type": "ap", "ip": "10.0.10.5", "mac": "fc:ec:da:00:11:22"}},
-            {"data": {"id": "ag1", "label": "Agent-East", "type": "agent", "ip": "10.0.10.15", "mac": "00:50:56:88:99:aa"}},
-            {"data": {"id": "ag2", "label": "Agent-West", "type": "agent", "ip": "10.0.10.16", "mac": "00:50:56:88:99:bb"}},
-            # Connected to AP (VLAN 10) - 7 devices to trigger React auto-grouping limit (>5 nodes)
-            {"data": {"id": "lap1", "label": "Laptop-John", "type": "laptop", "ip": "10.0.10.51", "mac": "00:1a:e8:11:22:33"}},
-            {"data": {"id": "lap2", "label": "Laptop-Mary", "type": "laptop", "ip": "10.0.10.52", "mac": "00:1a:e8:11:22:44"}},
-            {"data": {"id": "lap3", "label": "Laptop-Dev", "type": "laptop", "ip": "10.0.10.53", "mac": "00:1a:e8:11:22:55"}},
-            {"data": {"id": "lap4", "label": "Laptop-QA", "type": "laptop", "ip": "10.0.10.54", "mac": "00:1a:e8:11:22:66"}},
-            {"data": {"id": "lap5", "label": "Laptop-Sales", "type": "laptop", "ip": "10.0.10.55", "mac": "00:1a:e8:11:22:77"}},
-            {"data": {"id": "lap6", "label": "Laptop-HR", "type": "laptop", "ip": "10.0.10.56", "mac": "00:1a:e8:11:22:88"}},
-            {"data": {"id": "lap7", "label": "Laptop-Fin", "type": "laptop", "ip": "10.0.10.57", "mac": "00:1a:e8:11:22:99"}},
-            
-            # Mobile devices connected to AP
-            {"data": {"id": "mob1", "label": "iPhone-Admin", "type": "mobile", "ip": "10.0.10.80", "mac": "d8:d3:85:ff:ee:dd"}},
-            {"data": {"id": "mob2", "label": "Android-Guest", "type": "mobile", "ip": "10.0.10.81", "mac": "e0:d9:e3:12:34:56"}},
-        ]
-        
-        edges = [
-            {"data": {"id": "fw-sw1", "source": "fw", "target": "sw1", "type": "CONNECTED_TO"}},
-            {"data": {"id": "sw1-wlc", "source": "sw1", "target": "wlc", "type": "CONNECTED_TO"}},
-            {"data": {"id": "sw1-ap1", "source": "sw1", "target": "ap1", "type": "CONNECTED_TO"}},
-            {"data": {"id": "sw1-ag1", "source": "sw1", "target": "ag1", "type": "CONNECTED_TO"}},
-            {"data": {"id": "sw1-ag2", "source": "sw1", "target": "ag2", "type": "CONNECTED_TO"}},
-            # Device mappings to AP
-            {"data": {"id": "ap1-lap1", "source": "ap1", "target": "lap1", "type": "CONNECTED_TO"}},
-            {"data": {"id": "ap1-lap2", "source": "ap1", "target": "lap2", "type": "CONNECTED_TO"}},
-            {"data": {"id": "ap1-lap3", "source": "ap1", "target": "lap3", "type": "CONNECTED_TO"}},
-            {"data": {"id": "ap1-lap4", "source": "ap1", "target": "lap4", "type": "CONNECTED_TO"}},
-            {"data": {"id": "ap1-lap5", "source": "ap1", "target": "lap5", "type": "CONNECTED_TO"}},
-            {"data": {"id": "ap1-lap6", "source": "ap1", "target": "lap6", "type": "CONNECTED_TO"}},
-            {"data": {"id": "ap1-lap7", "source": "ap1", "target": "lap7", "type": "CONNECTED_TO"}},
-            
-            {"data": {"id": "ap1-mob1", "source": "ap1", "target": "mob1", "type": "CONNECTED_TO"}},
-            {"data": {"id": "ap1-mob2", "source": "ap1", "target": "mob2", "type": "CONNECTED_TO"}},
-        ]
+        """Returns empty topology for clean dashboard deployment when Neo4j is unavailable."""
+        nodes = []
+        edges = []
         return {"nodes": nodes, "edges": edges}
 
 neo4j_store = Neo4jConnector()
