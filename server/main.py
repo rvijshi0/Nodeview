@@ -17,6 +17,31 @@ from sqlalchemy.orm import Session
 from database_pg import init_pg, get_pg_db, User, NetworkRange, Agent, DiagnosticTest, InternetTarget, AgentTraceroute, SystemSetting
 from database_neo4j import neo4j_store
 
+try:
+    from mac_vendor_lookup import MacLookup, VendorNotFoundError
+    mac_lookup = MacLookup()
+    # Fetch latest vendors on startup (might fail if no internet, handled silently by the library or try block)
+    try:
+        mac_lookup.update_vendors()
+    except:
+        pass
+except ImportError:
+    mac_lookup = None
+
+def identify_device_type(mac_addr, default="laptop"):
+    if not mac_addr or not mac_lookup: return default
+    try:
+        vendor = mac_lookup.lookup(mac_addr).lower()
+        if any(x in vendor for x in ["cisco", "juniper", "arista", "mikrotik"]): return "switch"
+        if any(x in vendor for x in ["apple", "samsung", "huawei", "oneplus"]): return "mobile"
+        if any(x in vendor for x in ["hikvision", "dahua"]): return "camera"
+        if any(x in vendor for x in ["espressif", "raspberry"]): return "iot"
+        if any(x in vendor for x in ["ubiquiti", "aruba", "ruckus"]): return "ap"
+        if any(x in vendor for x in ["intel", "dell", "hp", "lenovo", "asus"]): return "desktop"
+        return "laptop" # fallback
+    except Exception:
+        return default
+
 app = FastAPI(title="NodeView v1.5.1 Enterprise Server")
 
 # Enable CORS
