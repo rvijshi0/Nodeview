@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import concurrent.futures
 import datetime
 import json
 import os
@@ -17,6 +18,7 @@ import websockets
 try:
     from scapy.all import (
         Ether, IP, TCP, UDP, ICMP, ARP,
+        DNS, DNSQR, NBNSQueryRequest,
         sr1, srp, send, sendp, sniff,
         conf, get_if_list, get_if_hwaddr, getmacbyip
     )
@@ -246,6 +248,66 @@ class NodeViewAgent:
 
     # ── Background Threads: Passive Discovery ─────────────────────
 
+    def resolve_dns(self, ip):
+        try:
+            hostname, _, _ = socket.gethostbyaddr(ip)
+            return hostname
+        except (socket.herror, socket.gaierror):
+            return None
+
+    def resolve_mdns(self, ip):
+        if not SCAPY_AVAILABLE: return None
+        try:
+            reverse_ip = '.'.join(reversed(ip.split('.'))) + ".in-addr.arpa"
+            unicast_query = IP(dst=ip) / UDP(sport=5353, dport=5353) / DNS(rd=1, qd=DNSQR(qname=reverse_ip, qtype="PTR"))
+            ans = sr1(unicast_query, timeout=1.5, verbose=0)
+            if ans and ans.haslayer(DNS) and ans[DNS].ancount > 0:
+                return ans[DNS].an.rdata.decode('utf-8').rstrip('.')
+        except Exception:
+            pass
+        return None
+
+    def resolve_netbios(self, ip):
+        if not SCAPY_AVAILABLE: return None
+        try:
+            nbns_query = IP(dst=ip) / UDP(sport=137, dport=137) / NBNSQueryRequest(SUFFIX=b"\\x00", QUESTION_NAME=b"*\\x00"*15, QUESTION_TYPE=0x21)
+            ans = sr1(nbns_query, timeout=1.5, verbose=0)
+            if ans and ans.haslayer('NBNSQueryResponse'):
+                name = ans['NBNSQueryResponse'].RR_NAME.decode('utf-8').strip()
+                return name
+        except Exception:
+            pass
+        return None
+
+    def get_hostname_for_ip(self, ip):
+        name = self.resolve_dns(ip)
+        if name: return name
+        name = self.resolve_mdns(ip)
+        if name: return name
+        name = self.resolve_netbios(ip)
+        if name: return name
+        return None
+
+    def resolve_discovered_hostnames(self):
+        with self.discovery_lock:
+            devices_to_resolve = []
+            for mac, dev in self.discovered_devices.items():
+                if dev.get("hostname", "").startswith("Host-") or dev.get("hostname", "").startswith("Discovered-"):
+                    devices_to_resolve.append(dev)
+                    
+        if not devices_to_resolve:
+            return
+            
+        def resolve_and_update(dev):
+            name = self.get_hostname_for_ip(dev["ip"])
+            if name:
+                with self.discovery_lock:
+                    if dev["mac"] in self.discovered_devices:
+                        self.discovered_devices[dev["mac"]]["hostname"] = name
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            list(executor.map(resolve_and_update, devices_to_resolve))
+
     def run_passive_discovery(self):
         if self.simulated:
             self.run_simulated_discovery()
@@ -261,6 +323,7 @@ class NodeViewAgent:
             else:
                 self.read_local_arp_table()
 
+            self.resolve_discovered_hostnames()
             self.push_telemetry()
             time.sleep(self.scan_frequency)
 
